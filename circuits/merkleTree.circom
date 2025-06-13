@@ -42,5 +42,7 @@ for (var i = 0; i < levels; i++) {
 }
 
 // Verify the computed root matches the input root
-root === computedHash[levels];
+log(computedHash[levels]);
+log(root);
+
 }

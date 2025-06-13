@@ -45,4 +45,4 @@ publicNullifierHash <== nullifierHash;
 publicRecipient <== recipient;
 }
 
-component main  = Withdraw(20);
+component main {public [root, nullifierHash, recipient]} = Withdraw(10);

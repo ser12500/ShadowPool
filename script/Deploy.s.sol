@@ -2,7 +2,7 @@
 pragma solidity ^0.8.20;
 
 import {ShadowPool} from "../src/ShadowPool.sol";
-import {Verifier} from "../src/Verifier.sol";
+import {Groth16Verifier} from "../src/Verifier.sol";
 import {Script} from "lib/forge-std/src/Script.sol";
 
 contract DeployScript is Script {
