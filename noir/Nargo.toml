@@ -1,0 +1,6 @@
+[package]
+name = "noir"
+type = "bin"
+authors = ["Siarhey Kerhet"]
+
+[dependencies]
