@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.30;
+pragma solidity ^0.8.30;
 
 import {ReentrancyGuard} from "lib/openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
 import {Ownable} from "lib/openzeppelin-contracts/contracts/access/Ownable.sol";
 import {IVerifier} from "./Verifier.sol";
+import {Incremental, Poseidon2} from "./Incremental.sol";
 
 /**
  * @title ShadowPool
@@ -11,12 +12,18 @@ import {IVerifier} from "./Verifier.sol";
  * Integrates with a Noir-generated verifier and supports a 20-level Merkle tree.
  * Inspired by Tornado Cash with gas optimizations and security features.
  */
-contract ShadowPool is ReentrancyGuard, Ownable {
+contract ShadowPool is ReentrancyGuard, Ownable, Incremental {
     // Fixed deposit amount set to 0.1 ETH
     uint256 public constant DEPOSIT_AMOUNT = 0.1 ether;
 
     // Address of the Noir verifier contract
     IVerifier public immutable verifier;
+
+    // Address of the IncrementalMerkleTree contract
+    Incremental public immutable merkleTree;
+
+    // Instance of Poseidon2 hasher
+    Poseidon2 public immutable poseidon;
 
     // Number of Merkle tree levels (aligned with Noir scheme)
     uint32 public constant TREE_LEVELS = 20;
@@ -39,26 +46,29 @@ contract ShadowPool is ReentrancyGuard, Ownable {
      * @param _verifier Address of the Noir verifier contract.
      * @param initialOwner Address of the contract owner.
      */
-    constructor(address _verifier, address initialOwner) Ownable(initialOwner) {
-        verifier = IVerifier(_verifier);
+    constructor(IVerifier _verifier, Poseidon2 _hasher, uint32 _merkleTreeDepth, address initialOwner)
+        Incremental(_merkleTreeDepth, _hasher)
+        Ownable(initialOwner)
+    {
+        verifier = _verifier;
     }
 
     /**
-     * @dev Allows users to deposit funds with a commitment.
-     * @param _commitment Hash of the user's secret and nullifier (Poseidon2 in Noir).
+     * @dev Allows users to deposit 0.1 ETH with a commitment.
+     * Commitment is computed off-chain as Poseidon2(nullifier, secret) and stored in the Merkle tree.
+     * @param _commitment Hash of the user's nullifier and secret.
      */
     function deposit(bytes32 _commitment) external payable nonReentrant {
         // Ensure correct deposit amount
         require(msg.value == DEPOSIT_AMOUNT, "Incorrect deposit amount");
-        // Ensure commitment is unique
-        require(!commitments[_commitment], "Commitment already exists");
 
-        // Store commitment
+        // add the commitment to the added commitments mapping
         commitments[_commitment] = true;
+        // Insert commitment into the Merkle tree
+        uint32 leafIndex = _insert(_commitment);
 
-        // Emit deposit event with leaf index and timestamp
-        emit Deposit(_commitment, nextLeafIndex, block.timestamp);
-        nextLeafIndex += 1;
+        // Emit deposit event
+        emit Deposit(_commitment, leafIndex, block.timestamp);
     }
 
     /**
@@ -75,14 +85,17 @@ contract ShadowPool is ReentrancyGuard, Ownable {
         // Ensure nullifier hasn't been used
         require(!nullifiers[_nullifierHash], "Nullifier already spent");
 
+        // Verify the Merkle root is known
+        require(merkleTree.isKnownRoot(_root), "Invalid Merkle root");
+
         // Mark nullifier as used
         nullifiers[_nullifierHash] = true;
 
-        // Prepare public inputs for Noir verifier: [root, nullifier_hash, recipient]
+        // Prepare public inputs: [root, nullifier_hash, recipient]
         bytes32[] memory publicInputs = new bytes32[](3);
         publicInputs[0] = _root;
         publicInputs[1] = _nullifierHash;
-        publicInputs[2] = bytes32(uint256(uint160(_recipient)));
+        publicInputs[2] = bytes32(uint256(uint160(address(_recipient))));
 
         // Verify the Noir proof
         require(verifier.verify(_proof, publicInputs), "Invalid zk-proof");
