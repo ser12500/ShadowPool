@@ -13,4 +13,3 @@ docs/
 # Dotenv file
 .env
 circuits/powersOfTau28_hez_final_20.ptau
-ShadowPoolTest.sol

@@ -17,7 +17,7 @@ contract ShadowPool is ReentrancyGuard, Ownable, Incremental {
     uint256 public constant DEPOSIT_AMOUNT = 0.1 ether;
 
     // Address of the Noir verifier contract
-    IVerifier public immutable verifier;
+    IVerifier public immutable i_verifier;
 
     // Address of the IncrementalMerkleTree contract
     Incremental public immutable merkleTree;
@@ -29,17 +29,58 @@ contract ShadowPool is ReentrancyGuard, Ownable, Incremental {
     uint32 public constant TREE_LEVELS = 20;
 
     // Mapping to track used nullifiers and prevent double-spending
-    mapping(bytes32 => bool) public nullifiers;
+    mapping(bytes32 => bool) public s_nullifiers;
 
     // Mapping to track commitments and ensure uniqueness
-    mapping(bytes32 => bool) public commitments;
+    mapping(bytes32 => bool) public s_commitments;
 
     // Events for deposit and withdrawal tracking
     event Deposit(bytes32 indexed commitment, uint32 leafIndex, uint256 timestamp);
     event Withdrawal(address indexed to, bytes32 indexed nullifierHash);
 
-    // Index of the next leaf in the Merkle tree (for event tracking)
-    uint32 public nextLeafIndex = 0;
+    /**
+     * @notice Error that occurs when the expected and actual deposit values do not match.
+     * @param expected The expected deposit value.
+     * @param actual The actual deposit value.
+     */
+    error Mixer__DepositValueMismatch(uint256 expected, uint256 actual);
+
+    /**
+     * @notice Error that occurs when a payment attempt fails.
+     * @param recipient The address of the payment recipient.
+     * @param amount The amount that was attempted to be sent.
+     */
+    error Mixer__PaymentFailed(address recipient, uint256 amount);
+
+    /**
+     * @notice Error that occurs when trying to reuse an already spent note.
+     * @param nullifierHash The hash of the note that has already been used.
+     */
+    error Mixer__NoteAlreadySpent(bytes32 nullifierHash);
+
+    /**
+     * @notice Error that occurs when an unknown root is used.
+     * @param root The unknown root.
+     */
+    error Mixer__UnknownRoot(bytes32 root);
+
+    /**
+     * @notice Error that occurs when an invalid withdrawal proof is provided.
+     */
+    error Mixer__InvalidWithdrawProof();
+
+    /**
+     * @notice Error that occurs when the fee exceeds the deposit value.
+     * @param expected The expected deposit value.
+     * @param actual The actual deposit value.
+     */
+    error Mixer__FeeExceedsDepositValue(uint256 expected, uint256 actual);
+
+    /**
+     * @notice Error that occurs when attempting to add an already existing commitment.
+     * @param commitment The hash of the commitment that has already been added.
+     */
+    error Mixer__CommitmentAlreadyAdded(bytes32 commitment);
 
     /**
      * @dev Constructor to initialize the verifier and owner addresses.
@@ -50,7 +91,7 @@ contract ShadowPool is ReentrancyGuard, Ownable, Incremental {
         Incremental(_merkleTreeDepth, _hasher)
         Ownable(initialOwner)
     {
-        verifier = _verifier;
+        i_verifier = _verifier;
     }
 
     /**
@@ -59,11 +100,17 @@ contract ShadowPool is ReentrancyGuard, Ownable, Incremental {
      * @param _commitment Hash of the user's nullifier and secret.
      */
     function deposit(bytes32 _commitment) external payable nonReentrant {
-        // Ensure correct deposit amount
-        require(msg.value == DEPOSIT_AMOUNT, "Incorrect deposit amount");
+        // check if the commitment is already added
+        if (s_commitments[_commitment]) {
+            revert Mixer__CommitmentAlreadyAdded(_commitment);
+        }
+        // check if the value sent is equal to the denomination
+        if (msg.value != DEPOSIT_AMOUNT) {
+            revert Mixer__DepositValueMismatch({expected: DEPOSIT_AMOUNT, actual: msg.value});
+        }
 
         // add the commitment to the added commitments mapping
-        commitments[_commitment] = true;
+        s_commitments[_commitment] = true;
         // Insert commitment into the Merkle tree
         uint32 leafIndex = _insert(_commitment);
 
@@ -83,13 +130,16 @@ contract ShadowPool is ReentrancyGuard, Ownable, Incremental {
         nonReentrant
     {
         // Ensure nullifier hasn't been used
-        require(!nullifiers[_nullifierHash], "Nullifier already spent");
-
-        // Verify the Merkle root is known
-        require(merkleTree.isKnownRoot(_root), "Invalid Merkle root");
+        if (s_nullifiers[_nullifierHash]) {
+            revert Mixer__NoteAlreadySpent({nullifierHash: _nullifierHash});
+        }
 
         // Mark nullifier as used
-        nullifiers[_nullifierHash] = true;
+        s_nullifiers[_nullifierHash] = true;
+        // Verify the Merkle root is known
+        if (!isKnownRoot(_root)) {
+            revert Mixer__UnknownRoot({root: _root});
+        }
 
         // Prepare public inputs: [root, nullifier_hash, recipient]
         bytes32[] memory publicInputs = new bytes32[](3);
@@ -98,11 +148,15 @@ contract ShadowPool is ReentrancyGuard, Ownable, Incremental {
         publicInputs[2] = bytes32(uint256(uint160(address(_recipient))));
 
         // Verify the Noir proof
-        require(verifier.verify(_proof, publicInputs), "Invalid zk-proof");
+        if (!i_verifier.verify(_proof, publicInputs)) {
+            revert Mixer__InvalidWithdrawProof();
+        }
 
         // Transfer funds to recipient
         (bool success,) = _recipient.call{value: DEPOSIT_AMOUNT}("");
-        require(success, "Transfer failed");
+        if (!success) {
+            revert Mixer__PaymentFailed({recipient: _recipient, amount: DEPOSIT_AMOUNT});
+        }
 
         // Emit withdrawal event
         emit Withdrawal(_recipient, _nullifierHash);

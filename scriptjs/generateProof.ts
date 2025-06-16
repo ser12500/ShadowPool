@@ -9,7 +9,7 @@ import { Noir } from "@noir-lang/noir_js";
 import path from 'path';
 import fs from 'fs';
 
-const circuit = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../noir/target/noir.json'), 'utf8'));
+const circuit = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../noir/target/noir.json'), 'utf8'));
 
 export default async function generateProof() {
     // Initialize Barretenberg
