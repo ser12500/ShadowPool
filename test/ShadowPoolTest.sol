@@ -2,18 +2,21 @@
 pragma solidity ^0.8.30;
 
 import {Test, console} from "lib/forge-std/src/Test.sol";
-import {HonkVerifier} from "../src/Verifier.sol";
+import {HonkVerifier} from "../src/Verifier/Verifier.sol";
 import {ShadowPool, IVerifier, Poseidon2} from "../src/ShadowPool.sol";
 import {Incremental} from "../src/Incremental.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {Field} from "lib/poseidon2-evm/src/Field.sol";
-
 import {MockERC20} from "./mock/MockERC20.sol";
+import {ShadowPoolDAO} from "../src/ShadowPoolDAO.sol";
+import {ShadowPoolGovernanceToken} from "../src/ShadowPoolGovernanceToken.sol";
 
 contract ShadowPoolTest is Test {
     IVerifier public verifier;
     ShadowPool public shadowPool;
     Poseidon2 public poseidon;
+    ShadowPoolDAO public dao;
+    ShadowPoolGovernanceToken public governanceToken;
 
     address public recipient = makeAddr("recipient");
 
@@ -30,39 +33,66 @@ contract ShadowPoolTest is Test {
     uint256 public constant INITIAL_FIXED_FEE = 0.001 ether;
     uint256 public constant MERKLE_TREE_DEPTH = 20;
 
+    // DAO constants
+    uint256 public constant INITIAL_TOKEN_SUPPLY = 1_000_000 * 10 ** 18; // 1 million tokens
+    uint256 public constant PROPOSAL_THRESHOLD = 10_000 * 10 ** 18; // 10k tokens
+    uint256 public constant VOTING_PERIOD = 40_320; // ~1 week (12 second blocks)
+    uint256 public constant QUORUM_VOTES = 100_000 * 10 ** 18; // 100k tokens
+    uint256 public constant TIMELOCK_DELAY = 24 hours;
+    uint256 public constant MAX_ACTIVE_PROPOSALS = 10;
+
     event MultiDeposit(bytes32[] commitments, uint32[] leafIndices, uint256 timestamp);
     event FeeUpdated(uint256 percentageFee, uint256 fixedFee);
     event FeeCollected(address indexed token, uint256 amount);
 
+    /// @notice Sets up the test environment by deploying all contracts and initializing test accounts
+    /// @dev Deploys governance token, DAO, ShadowPool, and mock tokens. Sets up test accounts with initial balances.
     function setUp() public {
-        // Deploy Poseidon hasher contract
         poseidon = new Poseidon2();
-
-        // Deploy Groth16 verifier contract
         verifier = new HonkVerifier();
-
-        // Create a separate owner address
         owner = makeAddr("owner");
 
-        // Deploy ShadowPool with fee configuration
-        shadowPool = new ShadowPool(
-            IVerifier(verifier), poseidon, uint32(MERKLE_TREE_DEPTH), owner, INITIAL_PERCENTAGE_FEE, INITIAL_FIXED_FEE
+        // 1. Governance token
+        governanceToken = new ShadowPoolGovernanceToken(owner, INITIAL_TOKEN_SUPPLY);
+
+        // 2. Create temporary address for ShadowPool
+        address tempShadowPoolAddress = address(0x123);
+
+        // 3. DAO with temporary ShadowPool address
+        dao = new ShadowPoolDAO(
+            governanceToken,
+            tempShadowPoolAddress,
+            PROPOSAL_THRESHOLD,
+            VOTING_PERIOD,
+            QUORUM_VOTES,
+            TIMELOCK_DELAY,
+            MAX_ACTIVE_PROPOSALS
         );
+
+        // 4. ShadowPool with correct DAO address
+        shadowPool = new ShadowPool(
+            IVerifier(verifier),
+            poseidon,
+            uint32(MERKLE_TREE_DEPTH),
+            address(dao),
+            INITIAL_PERCENTAGE_FEE,
+            INITIAL_FIXED_FEE
+        );
+
+        // Note: In tests, DAO uses temporary ShadowPool address
+        // In production, address will be updated through DAO voting procedure
 
         user1 = makeAddr("user1");
         user2 = makeAddr("user2");
 
-        // Deploy mock tokens
         token1 = new MockERC20("Token1", "TK1");
         token2 = new MockERC20("Token2", "TK2");
         token3 = new MockERC20("Token3", "TK3");
 
-        // Mint tokens to users
         token1.mint(user1, 1000 ether);
         token2.mint(user1, 1000 ether);
         token3.mint(user1, 1000 ether);
 
-        // Fund users with ETH
         vm.deal(user1, 100 ether);
         vm.deal(user2, 100 ether);
     }
@@ -95,7 +125,7 @@ contract ShadowPoolTest is Test {
         inputs[0] = "npx";
         inputs[1] = "tsx";
         inputs[2] = "/home/sergey/ShadowPool/scriptjs/generateCommitment.ts";
-        inputs[3] = vm.toString(token);
+        inputs[3] = vm.toString(bytes32(uint256(uint160(token))));
         inputs[4] = vm.toString(amount);
 
         bytes memory result = vm.ffi(inputs);
@@ -104,8 +134,10 @@ contract ShadowPoolTest is Test {
         return (commitment, nullifier, secret);
     }
 
+    /// @notice Tests commitment generation functionality
+    /// @dev Verifies that commitments can be generated correctly using Poseidon2 hashing
     function testGetCommitment() public {
-        // Используем прямую генерацию коммитмента вместо FFI
+        // Use direct commitment generation instead of FFI
         uint256 nullifier = 123;
         uint256 secret = 456;
         bytes32 commitment = generateCommitment(address(0), 10 ether, nullifier, secret);
@@ -123,14 +155,21 @@ contract ShadowPoolTest is Test {
         assertTrue(secret != 0);
     }
 
+    /// @notice Tests ShadowPool constructor parameters
+    /// @dev Verifies that all constructor parameters are set correctly
     function testConstructor() public {
-        assertEq(shadowPool.owner(), owner);
+        assertEq(shadowPool.daoAddress(), address(dao));
         assertEq(shadowPool.percentageFee(), INITIAL_PERCENTAGE_FEE);
         assertEq(shadowPool.fixedFee(), INITIAL_FIXED_FEE);
         assertEq(address(shadowPool.i_verifier()), address(verifier));
     }
 
-    // Вспомогательная функция для генерации commitment через Poseidon2
+    /// @notice Helper function for commitment generation via Poseidon2
+    /// @param token Token address (address(0) for ETH)
+    /// @param amount Amount to deposit
+    /// @param nullifier Unique nullifier for the deposit
+    /// @param secret Secret value for the deposit
+    /// @return Commitment hash computed as Poseidon2(nullifier, secret, token, amount)
     function generateCommitment(address token, uint256 amount, uint256 nullifier, uint256 secret)
         internal
         view
@@ -144,6 +183,8 @@ contract ShadowPoolTest is Test {
         return bytes32(Field.toUint256(poseidon.hash(input)));
     }
 
+    /// @notice Tests multi-deposit functionality with ETH only
+    /// @dev Verifies that ETH deposits work correctly with fee calculation and DAO fee collection
     function testMultiDeposit_ETH_Only() public {
         vm.startPrank(user1);
 
@@ -155,18 +196,20 @@ contract ShadowPoolTest is Test {
         deposits[0] = ShadowPool.Deposit({token: address(0), amount: 10 ether, commitment: commitment});
 
         uint256 userBalanceBefore = user1.balance;
-        uint256 ownerBalanceBefore = owner.balance;
+        uint256 daoBalanceBefore = address(dao).balance;
 
         shadowPool.multiDeposit{value: 10 ether}(deposits);
 
         uint256 fee = (10 ether * INITIAL_PERCENTAGE_FEE) / 10000 + INITIAL_FIXED_FEE;
         assertEq(user1.balance, userBalanceBefore - 10 ether);
-        assertEq(owner.balance, ownerBalanceBefore + fee);
+        assertEq(address(dao).balance, daoBalanceBefore + fee);
         assertTrue(shadowPool.s_commitments(commitment));
 
         vm.stopPrank();
     }
 
+    /// @notice Tests multi-deposit functionality with ERC20 tokens only
+    /// @dev Verifies that ERC20 deposits work correctly with fee calculation and DAO fee collection
     function testMultiDeposit_ERC20_Only() public {
         vm.startPrank(user1);
 
@@ -180,18 +223,20 @@ contract ShadowPoolTest is Test {
         token1.approve(address(shadowPool), 100 ether);
 
         uint256 userBalanceBefore = token1.balanceOf(user1);
-        uint256 ownerBalanceBefore = token1.balanceOf(owner);
+        uint256 daoBalanceBefore = token1.balanceOf(address(dao));
 
         shadowPool.multiDeposit(deposits);
 
         uint256 fee = (100 ether * INITIAL_PERCENTAGE_FEE) / 10000 + INITIAL_FIXED_FEE;
         assertEq(token1.balanceOf(user1), userBalanceBefore - 100 ether);
-        assertEq(token1.balanceOf(owner), ownerBalanceBefore + fee);
+        assertEq(token1.balanceOf(address(dao)), daoBalanceBefore + fee);
         assertTrue(shadowPool.s_commitments(commitment));
 
         vm.stopPrank();
     }
 
+    /// @notice Tests multi-deposit functionality with mixed ETH and ERC20 tokens
+    /// @dev Verifies that mixed deposits work correctly with separate fee calculations for each token type
     function testMultiDeposit_Mixed_ETH_ERC20() public {
         vm.startPrank(user1);
 
@@ -211,8 +256,8 @@ contract ShadowPoolTest is Test {
 
         uint256 userEthBalanceBefore = user1.balance;
         uint256 userTokenBalanceBefore = token1.balanceOf(user1);
-        uint256 ownerEthBalanceBefore = owner.balance;
-        uint256 ownerTokenBalanceBefore = token1.balanceOf(owner);
+        uint256 ownerEthBalanceBefore = address(dao).balance;
+        uint256 ownerTokenBalanceBefore = token1.balanceOf(address(dao));
 
         shadowPool.multiDeposit{value: 10 ether}(deposits);
 
@@ -221,8 +266,8 @@ contract ShadowPoolTest is Test {
 
         assertEq(user1.balance, userEthBalanceBefore - 10 ether);
         assertEq(token1.balanceOf(user1), userTokenBalanceBefore - 100 ether);
-        assertEq(owner.balance, ownerEthBalanceBefore + ethFee);
-        assertEq(token1.balanceOf(owner), ownerTokenBalanceBefore + tokenFee);
+        assertEq(address(dao).balance, ownerEthBalanceBefore + ethFee);
+        assertEq(token1.balanceOf(address(dao)), ownerTokenBalanceBefore + tokenFee);
         assertTrue(shadowPool.s_commitments(commitment1));
         assertTrue(shadowPool.s_commitments(commitment2));
 
@@ -272,14 +317,14 @@ contract ShadowPoolTest is Test {
         bytes32 commitment = generateCommitment(address(0), 10 ether, nullifier, secret);
 
         uint256 userBalanceBefore = user1.balance;
-        uint256 ownerBalanceBefore = owner.balance;
+        uint256 daoBalanceBefore = address(dao).balance;
 
         uint256 fee = (10 ether * INITIAL_PERCENTAGE_FEE) / 10000 + INITIAL_FIXED_FEE;
 
         shadowPool.deposit{value: 10 ether}(commitment);
 
         assertEq(user1.balance, userBalanceBefore - 10 ether);
-        assertEq(owner.balance, ownerBalanceBefore + fee);
+        assertEq(address(dao).balance, daoBalanceBefore + fee);
         assertTrue(shadowPool.s_commitments(commitment));
 
         vm.stopPrank();
@@ -320,7 +365,7 @@ contract ShadowPoolTest is Test {
     }
 
     function testUpdateFees_Owner() public {
-        vm.startPrank(owner);
+        vm.startPrank(address(dao));
 
         uint256 newPercentageFee = 100; // 1%
         uint256 newFixedFee = 0.002 ether;
@@ -346,7 +391,7 @@ contract ShadowPoolTest is Test {
     }
 
     function testUpdateFees_TooHighPercentage() public {
-        vm.startPrank(owner);
+        vm.startPrank(address(dao));
 
         vm.expectRevert(abi.encodeWithSelector(ShadowPool.Mixer__PercentageFeeTooHigh.selector, 500, 501));
 

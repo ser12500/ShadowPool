@@ -2,10 +2,9 @@
 pragma solidity ^0.8.30;
 
 import {ReentrancyGuard} from "lib/openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
-import {Ownable} from "lib/openzeppelin-contracts/contracts/access/Ownable.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
-import {IVerifier} from "./Verifier.sol";
+import {IVerifier} from "./Verifier/Verifier.sol";
 import {Incremental, Poseidon2} from "./Incremental.sol";
 
 /**
@@ -13,17 +12,21 @@ import {Incremental, Poseidon2} from "./Incremental.sol";
  * @dev A multi-currency mixer contract for anonymous transactions using Noir zk-proofs.
  * Supports ETH and ERC20 tokens with dynamic fee mechanism and multi-deposit functionality.
  * Integrates with a Noir-generated verifier and supports a 20-level Merkle tree.
+ * Governance is handled by DAO contract.
  */
-contract ShadowPool is ReentrancyGuard, Ownable, Incremental {
+contract ShadowPool is ReentrancyGuard, Incremental {
     using SafeERC20 for IERC20;
 
     // Fee configuration
     uint256 public percentageFee; // Fee as percentage (basis points, e.g., 50 = 0.5%)
     uint256 public fixedFee; // Fixed fee in wei
-    uint256 public constant BASIS_POINTS = 10000; // 100% = 10000 basis points
+    uint256 public constant BASIS_POINTS = 1e18; // 100% = 10000 basis points
 
     // Address of the Noir verifier contract
     IVerifier public immutable i_verifier;
+
+    // Address of the DAO contract
+    address public daoAddress;
 
     // Mapping to track used nullifiers and prevent double-spending
     mapping(bytes32 => bool) public s_nullifiers;
@@ -44,6 +47,7 @@ contract ShadowPool is ReentrancyGuard, Ownable, Incremental {
     event Withdrawal(address indexed to, bytes32[] nullifierHashes, address[] tokens, uint256[] amounts);
     event FeeUpdated(uint256 percentageFee, uint256 fixedFee);
     event FeeCollected(address indexed token, uint256 amount);
+    event DAOUpdated(address indexed oldDAO, address indexed newDAO);
 
     /**
      * @notice Error that occurs when the expected and actual deposit values do not match.
@@ -104,11 +108,31 @@ contract ShadowPool is ReentrancyGuard, Ownable, Incremental {
     error Mixer__PercentageFeeTooHigh(uint256 maxAllowed, uint256 provided);
 
     /**
-     * @dev Constructor to initialize the verifier, owner addresses, and fee configuration.
+     * @notice Error that occurs when caller is not the DAO.
+     */
+    error Mixer__NotDAO();
+
+    /**
+     * @notice Error that occurs when invalid address is provided.
+     */
+    error Mixer__InvalidAddress();
+
+    /**
+     * @dev Modifier to restrict access to DAO only
+     */
+    modifier onlyDAO() {
+        if (msg.sender != daoAddress) {
+            revert Mixer__NotDAO();
+        }
+        _;
+    }
+
+    /**
+     * @dev Constructor to initialize the verifier, DAO address, and fee configuration.
      * @param _verifier Address of the Noir verifier contract.
      * @param _hasher Address of the Poseidon2 hasher contract.
      * @param _merkleTreeDepth Depth of the Merkle tree.
-     * @param initialOwner Address of the contract owner.
+     * @param _daoAddress Address of the DAO contract.
      * @param _percentageFee Initial percentage fee in basis points (e.g., 50 = 0.5%).
      * @param _fixedFee Initial fixed fee in wei.
      */
@@ -116,11 +140,12 @@ contract ShadowPool is ReentrancyGuard, Ownable, Incremental {
         IVerifier _verifier,
         Poseidon2 _hasher,
         uint32 _merkleTreeDepth,
-        address initialOwner,
+        address _daoAddress,
         uint256 _percentageFee,
         uint256 _fixedFee
-    ) Incremental(_merkleTreeDepth, _hasher) Ownable(initialOwner) {
+    ) Incremental(_merkleTreeDepth, _hasher) {
         i_verifier = _verifier;
+        daoAddress = _daoAddress;
         percentageFee = _percentageFee;
         fixedFee = _fixedFee;
     }
@@ -162,7 +187,7 @@ contract ShadowPool is ReentrancyGuard, Ownable, Incremental {
 
                 // Transfer fee to owner immediately for ERC20
                 if (totalFee > 0) {
-                    IERC20(dep.token).safeTransfer(owner(), totalFee);
+                    IERC20(dep.token).safeTransfer(daoAddress, totalFee);
                     emit FeeCollected(dep.token, totalFee);
                 }
             }
@@ -188,9 +213,9 @@ contract ShadowPool is ReentrancyGuard, Ownable, Incremental {
                 uint256 totalFee = percentageFeeAmount + fixedFee;
 
                 if (totalFee > 0) {
-                    (bool success,) = owner().call{value: totalFee}("");
+                    (bool success,) = daoAddress.call{value: totalFee}("");
                     if (!success) {
-                        revert Mixer__PaymentFailed({recipient: owner(), amount: totalFee});
+                        revert Mixer__PaymentFailed({recipient: daoAddress, amount: totalFee});
                     }
                     emit FeeCollected(dep.token, totalFee);
                 }
@@ -228,9 +253,9 @@ contract ShadowPool is ReentrancyGuard, Ownable, Incremental {
 
         // Transfer fee to owner after commitment is added
         if (totalFee > 0) {
-            (bool success,) = owner().call{value: totalFee}("");
+            (bool success,) = daoAddress.call{value: totalFee}("");
             if (!success) {
-                revert Mixer__PaymentFailed({recipient: owner(), amount: totalFee});
+                revert Mixer__PaymentFailed({recipient: daoAddress, amount: totalFee});
             }
             emit FeeCollected(address(0), totalFee);
         }
@@ -301,11 +326,11 @@ contract ShadowPool is ReentrancyGuard, Ownable, Incremental {
     }
 
     /**
-     * @dev Updates the fee configuration. Only callable by owner.
+     * @dev Updates the fee configuration. Only callable by DAO.
      * @param _percentageFee New percentage fee in basis points.
      * @param _fixedFee New fixed fee in wei.
      */
-    function updateFees(uint256 _percentageFee, uint256 _fixedFee) external onlyOwner {
+    function updateFees(uint256 _percentageFee, uint256 _fixedFee) external onlyDAO {
         // Limit percentage fee to 5% (500 basis points)
         if (_percentageFee > 500) {
             revert Mixer__PercentageFeeTooHigh({maxAllowed: 500, provided: _percentageFee});
@@ -315,6 +340,21 @@ contract ShadowPool is ReentrancyGuard, Ownable, Incremental {
         fixedFee = _fixedFee;
 
         emit FeeUpdated(_percentageFee, _fixedFee);
+    }
+
+    /**
+     * @dev Updates the DAO address. Only callable by current DAO.
+     * @param _newDAOAddress New DAO address.
+     */
+    function updateDAOAddress(address _newDAOAddress) external onlyDAO {
+        if (_newDAOAddress == address(0)) {
+            revert Mixer__InvalidAddress();
+        }
+
+        address oldDAO = daoAddress;
+        daoAddress = _newDAOAddress;
+
+        emit DAOUpdated(oldDAO, _newDAOAddress);
     }
 
     /**
