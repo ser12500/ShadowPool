@@ -216,12 +216,9 @@ contract ShadowPoolDAO is ReentrancyGuard {
     /// @param proof Zk-proof bytes
     /// @param publicInputs Public inputs for verification
     /// @param support True for support, false for against
-    function castAnonymousVote(
-        uint256 proposalId,
-        bytes calldata proof,
-        bytes32[] calldata publicInputs,
-        bool support
-    ) external {
+    function castAnonymousVote(uint256 proposalId, bytes calldata proof, bytes32[] calldata publicInputs, bool support)
+        external
+    {
         if (!anonymousVotingEnabled) {
             revert DAO__AnonymousVotingNotEnabled();
         }
@@ -242,7 +239,7 @@ contract ShadowPoolDAO is ReentrancyGuard {
     function setAnonymousVotingEnabled(bool enabled) external {
         // This function can only be called through successful proposals
         require(msg.sender == address(this), "DAO: Only self-call allowed");
-        
+
         anonymousVotingEnabled = enabled;
         emit AnonymousVotingEnabled(enabled);
     }
@@ -252,7 +249,7 @@ contract ShadowPoolDAO is ReentrancyGuard {
     function updateAnonymousVotingContract(address newAnonymousVoting) external {
         // This function can only be called through successful proposals
         require(msg.sender == address(this), "DAO: Only self-call allowed");
-        
+
         address oldContract = address(anonymousVoting);
         anonymousVoting = AnonymousVoting(newAnonymousVoting);
         emit AnonymousVotingContractUpdated(oldContract, newAnonymousVoting);
@@ -266,7 +263,7 @@ contract ShadowPoolDAO is ReentrancyGuard {
         }
 
         AnonymousVoting.ProposalVotes memory anonymousVotes = anonymousVoting.getProposalVotes(proposalId);
-        
+
         if (anonymousVotes.votingActive) {
             // Update proposal with anonymous vote totals
             proposals[proposalId].forVotes = anonymousVotes.forVotes;
@@ -278,9 +275,13 @@ contract ShadowPoolDAO is ReentrancyGuard {
     /// @param proposalId ID of the proposal
     /// @return forVotes Total votes for the proposal
     /// @return againstVotes Total votes against the proposal
-    function getCombinedVoteResults(uint256 proposalId) external view returns (uint256 forVotes, uint256 againstVotes) {
+    function getCombinedVoteResults(uint256 proposalId)
+        external
+        view
+        returns (uint256 forVotes, uint256 againstVotes)
+    {
         Proposal storage proposal = proposals[proposalId];
-        
+
         forVotes = proposal.forVotes;
         againstVotes = proposal.againstVotes;
 

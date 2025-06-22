@@ -1,0 +1,6 @@
+[package]
+name = "noir_voting"
+type = "bin"
+authors = [""]
+
+[dependencies]

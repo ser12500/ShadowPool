@@ -346,17 +346,17 @@ contract ShadowPoolTest is Test {
         uint256 secret = 28;
         bytes32 commitment = generateCommitment(address(0), 10 ether, nullifier, secret);
 
-        // Используем новую функцию multiDeposit
+        // Use new multiDeposit function
         vm.startPrank(user1);
         ShadowPool.Deposit[] memory deposits = new ShadowPool.Deposit[](1);
         deposits[0] = ShadowPool.Deposit({token: address(0), amount: 10 ether, commitment: commitment});
         shadowPool.multiDeposit{value: 10 ether}(deposits);
         vm.stopPrank();
 
-        // Проверяем, что коммитмент добавлен
+        // Check that commitment is added
         assertTrue(shadowPool.s_commitments(commitment));
 
-        // Проверяем баланс контракта
+        // Check contract balance
         uint256 fee = (10 ether * INITIAL_PERCENTAGE_FEE) / 10000 + INITIAL_FIXED_FEE;
         assertEq(shadowPool.getBalance(address(0)), 10 ether - fee);
 
@@ -450,5 +450,131 @@ contract ShadowPoolTest is Test {
         shadowPool.withdraw("", bytes32(0), nullifierHashes, payable(user2), tokens, amounts);
 
         vm.stopPrank();
+    }
+
+    // ============ UTILITY FUNCTIONS TESTS ============
+
+    function testGetPoolSize() public {
+        // Initially pool should be empty
+        assertEq(shadowPool.getPoolSize(), 0);
+
+        // After a deposit, pool size should increase
+        bytes32 commitment = bytes32(uint256(1));
+        shadowPool.deposit{value: 1 ether}(commitment);
+
+        assertEq(shadowPool.getPoolSize(), 1);
+    }
+
+    function testGetAnonymityLevel() public {
+        // Test different anonymity levels based on pool size
+        assertEq(shadowPool.getAnonymityLevel(), "Low anonymity");
+
+        // Add more deposits to test different levels
+        for (uint256 i = 0; i < 15; i++) {
+            bytes32 commitment = bytes32(uint256(i + 1));
+            shadowPool.deposit{value: 0.1 ether}(commitment);
+        }
+
+        assertEq(shadowPool.getAnonymityLevel(), "Medium anonymity");
+    }
+
+    function testGetOptimalWithdrawTime() public {
+        // Test optimal withdraw time based on pool size
+        assertEq(shadowPool.getOptimalWithdrawTime(), 3600); // 1 hour for small pool
+
+        // Add more deposits
+        for (uint256 i = 0; i < 25; i++) {
+            bytes32 commitment = bytes32(uint256(i + 1));
+            shadowPool.deposit{value: 0.1 ether}(commitment);
+        }
+
+        assertEq(shadowPool.getOptimalWithdrawTime(), 1800); // 30 minutes for medium pool
+
+        // Add even more deposits
+        for (uint256 i = 25; i < 55; i++) {
+            bytes32 commitment = bytes32(uint256(i + 1));
+            shadowPool.deposit{value: 0.1 ether}(commitment);
+        }
+
+        assertEq(shadowPool.getOptimalWithdrawTime(), 0); // Can withdraw now for large pool
+    }
+
+    function testCalculateFee() public {
+        uint256 amount = 1 ether;
+        uint256 expectedFee = (amount * 50) / 10000 + 0.001 ether; // 0.5% + 0.001 ETH
+
+        assertEq(shadowPool.calculateFee(amount), expectedFee);
+    }
+
+    function testGetFeeBreakdown() public {
+        uint256 amount = 1 ether;
+        uint256 percentageFeeAmount = (amount * 50) / 10000; // 0.5% (50 basis points)
+        uint256 fixedFeeAmount = 0.001 ether;
+        uint256 totalFee = percentageFeeAmount + fixedFeeAmount;
+        (uint256 actualPercentageFee, uint256 actualFixedFee, uint256 actualTotalFee) =
+            shadowPool.getFeeBreakdown(amount);
+
+        assertEq(actualPercentageFee, percentageFeeAmount);
+        assertEq(actualFixedFee, fixedFeeAmount);
+        assertEq(actualTotalFee, totalFee);
+    }
+
+    function testIsDepositValid() public {
+        bytes32 commitment = bytes32(uint256(1));
+
+        // Initially commitment should not exist
+        assertEq(shadowPool.isDepositValid(commitment), false);
+
+        // After deposit, commitment should exist
+        shadowPool.deposit{value: 1 ether}(commitment);
+        assertEq(shadowPool.isDepositValid(commitment), true);
+    }
+
+    function testGetPoolStats() public {
+        (uint256 totalDeposits, bytes32 currentRoot, uint256 currentPercentageFee, uint256 currentFixedFee) =
+            shadowPool.getPoolStats();
+
+        assertEq(totalDeposits, 0);
+        assertEq(currentPercentageFee, 50); // 0.5%
+        assertEq(currentFixedFee, 0.001 ether);
+
+        // After a deposit
+        bytes32 commitment = bytes32(uint256(1));
+        shadowPool.deposit{value: 1 ether}(commitment);
+
+        (totalDeposits, currentRoot, currentPercentageFee, currentFixedFee) = shadowPool.getPoolStats();
+        assertEq(totalDeposits, 1);
+    }
+
+    function testGetMaxPoolSize() public {
+        assertEq(shadowPool.getMaxPoolSize(), 2 ** 20); // 20 depth merkle tree
+    }
+
+    function testGetPoolUtilization() public {
+        // Initially 0% utilization
+        assertEq(shadowPool.getPoolUtilization(), 0);
+
+        // After some deposits
+        for (uint256 i = 0; i < 100; i++) {
+            bytes32 commitment = bytes32(uint256(i + 1));
+            shadowPool.deposit{value: 0.1 ether}(commitment);
+        }
+
+        uint256 utilization = shadowPool.getPoolUtilization();
+        assertGe(utilization, 0); // Should be >= 0
+        assertLt(utilization, 1); // Should be less than 1% for 100 deposits in 2^20 pool
+    }
+
+    function testIsPoolFull() public {
+        // Pool should not be full initially
+        assertEq(shadowPool.isPoolFull(), false);
+
+        // Pool should not be full after some deposits
+        for (uint256 i = 0; i < 100; i++) {
+            bytes32 commitment = bytes32(uint256(i + 1));
+            shadowPool.deposit{value: 0.01 ether}(commitment);
+        }
+
+        assertEq(shadowPool.isPoolFull(), false);
     }
 }

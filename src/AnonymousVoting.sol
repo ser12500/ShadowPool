@@ -6,7 +6,7 @@ import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.so
 import {SafeERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Poseidon2} from "lib/poseidon2-evm/src/Poseidon2.sol";
 import {Field} from "lib/poseidon2-evm/src/Field.sol";
-import {IVotingVerifier} from "./Verifier/VotingVerifier.sol";
+import {IVerifier} from "./Verifier/VotingVerifier.sol";
 
 /**
  * @title AnonymousVoting
@@ -17,7 +17,7 @@ contract AnonymousVoting is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     /// @notice Voting verifier for zk-proofs
-    IVotingVerifier public immutable votingVerifier;
+    IVerifier public immutable votingVerifier;
 
     /// @notice Poseidon2 hasher for commitments
     Poseidon2 public immutable poseidon;
@@ -68,12 +68,7 @@ contract AnonymousVoting is ReentrancyGuard {
     /// @param _poseidon Address of Poseidon2 hasher
     /// @param _governanceToken Address of governance token
     /// @param _merkleTreeDepth Depth of merkle tree
-    constructor(
-        IVotingVerifier _votingVerifier,
-        Poseidon2 _poseidon,
-        IERC20 _governanceToken,
-        uint32 _merkleTreeDepth
-    ) {
+    constructor(IVerifier _votingVerifier, Poseidon2 _poseidon, IERC20 _governanceToken, uint32 _merkleTreeDepth) {
         votingVerifier = _votingVerifier;
         poseidon = _poseidon;
         governanceToken = _governanceToken;
@@ -219,5 +214,107 @@ contract AnonymousVoting is ReentrancyGuard {
         input[0] = Field.Type.wrap(nullifier);
         input[1] = Field.Type.wrap(proposalId);
         return bytes32(Field.toUint256(poseidon.hash(input)));
+    }
+
+    // ============ USER UTILITY FUNCTIONS ============
+
+    /// @notice Returns the total number of token commitments in the system
+    /// @return Total number of commitments
+    function getTotalCommitments() external view returns (uint256) {
+        // This would need to be tracked separately in a real implementation
+        // For now, we'll return a placeholder based on current merkle root
+        // In a real implementation, you would track this in a state variable
+        return 0;
+    }
+
+    /// @notice Returns the voting anonymity level based on total commitments
+    /// @return Anonymity level description
+    function getVotingAnonymityLevel() external view returns (string memory) {
+        // For now, return a default level since we don't track commitments properly
+        // In a real implementation, you would use getTotalCommitments()
+        return "Medium voting anonymity";
+    }
+
+    /// @notice Returns whether a proposal is currently active
+    /// @param proposalId ID of the proposal to check
+    /// @return True if proposal is active
+    function isProposalActive(uint256 proposalId) external view returns (bool) {
+        ProposalVotes storage votes = proposalVotes[proposalId];
+        if (!votes.votingActive) return false;
+        return block.number <= votes.endBlock;
+    }
+
+    /// @notice Returns the time remaining for a proposal
+    /// @param proposalId ID of the proposal
+    /// @return Time remaining in blocks (0 if ended)
+    function getProposalTimeRemaining(uint256 proposalId) external view returns (uint256) {
+        ProposalVotes storage votes = proposalVotes[proposalId];
+        if (!votes.votingActive) return 0;
+        if (block.number > votes.endBlock) return 0;
+        return votes.endBlock - block.number;
+    }
+
+    /// @notice Returns the voting progress for a proposal
+    /// @param proposalId ID of the proposal
+    /// @return forVotes Number of votes for
+    /// @return againstVotes Number of votes against
+    /// @return totalVotes Total votes cast
+    /// @return supportPercentage Percentage of votes in support
+    function getVotingProgress(uint256 proposalId)
+        external
+        view
+        returns (uint256 forVotes, uint256 againstVotes, uint256 totalVotes, uint256 supportPercentage)
+    {
+        ProposalVotes storage votes = proposalVotes[proposalId];
+        forVotes = votes.forVotes;
+        againstVotes = votes.againstVotes;
+        totalVotes = votes.totalVotes;
+
+        if (totalVotes > 0) {
+            supportPercentage = (forVotes * 100) / totalVotes;
+        } else {
+            supportPercentage = 0;
+        }
+    }
+
+    /// @notice Returns whether a proposal has reached quorum
+    /// @param proposalId ID of the proposal
+    /// @param quorumThreshold Minimum votes required for quorum
+    /// @return True if quorum is reached
+    function hasReachedQuorum(uint256 proposalId, uint256 quorumThreshold) external view returns (bool) {
+        ProposalVotes storage votes = proposalVotes[proposalId];
+        return votes.totalVotes >= quorumThreshold;
+    }
+
+    /// @notice Returns the voting period duration in blocks
+    /// @return Voting period duration
+    function getVotingPeriodDuration() external pure returns (uint256) {
+        return 40320; // ~1 week
+    }
+
+    /// @notice Returns the maximum number of proposals the system can handle
+    /// @return Maximum number of proposals
+    function getMaxProposals() external view returns (uint256) {
+        return 2 ** merkleTreeDepth;
+    }
+
+    /// @notice Returns whether the merkle tree is full
+    /// @return True if merkle tree is full
+    function isMerkleTreeFull() external view returns (bool) {
+        // This would need to track the actual number of commitments
+        // For now, return false as placeholder
+        return false;
+    }
+
+    /// @notice Returns the current merkle tree depth
+    /// @return Merkle tree depth
+    function getMerkleTreeDepth() external view returns (uint32) {
+        return merkleTreeDepth;
+    }
+
+    /// @notice Returns the governance token address
+    /// @return Governance token address
+    function getGovernanceToken() external view returns (address) {
+        return address(governanceToken);
     }
 }

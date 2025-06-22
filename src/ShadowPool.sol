@@ -20,7 +20,7 @@ contract ShadowPool is ReentrancyGuard, Incremental {
     // Fee configuration
     uint256 public percentageFee; // Fee as percentage (basis points, e.g., 50 = 0.5%)
     uint256 public fixedFee; // Fixed fee in wei
-    uint256 public constant BASIS_POINTS = 1e18; // 100% = 10000 basis points
+    uint256 public constant BASIS_POINTS = 10000; // 100% = 10000 basis points
 
     // Address of the Noir verifier contract
     IVerifier public immutable i_verifier;
@@ -421,5 +421,121 @@ contract ShadowPool is ReentrancyGuard, Incremental {
         }
 
         return publicInputs;
+    }
+
+    // ============ USER UTILITY FUNCTIONS ============
+
+    /**
+     * @dev Returns the current number of deposits in the pool.
+     * @return Number of deposits in the pool.
+     */
+    function getPoolSize() external view returns (uint256) {
+        return s_nextLeafIndex;
+    }
+
+    /**
+     * @dev Returns the anonymity level based on pool size.
+     * @return Anonymity level description.
+     */
+    function getAnonymityLevel() external view returns (string memory) {
+        uint256 size = s_nextLeafIndex;
+        if (size < 10) return "Low anonymity";
+        if (size < 50) return "Medium anonymity";
+        if (size < 100) return "High anonymity";
+        return "Maximum anonymity";
+    }
+
+    /**
+     * @dev Returns the recommended wait time for optimal anonymity.
+     * @return Recommended wait time in seconds.
+     */
+    function getOptimalWithdrawTime() external view returns (uint256) {
+        uint256 currentSize = s_nextLeafIndex;
+        if (currentSize < 20) {
+            return 3600; // Wait 1 hour
+        } else if (currentSize < 50) {
+            return 1800; // Wait 30 minutes
+        } else {
+            return 0; // Can withdraw now
+        }
+    }
+
+    /**
+     * @dev Calculates the fee for a given deposit amount.
+     * @param _amount Deposit amount in wei.
+     * @return Total fee in wei.
+     */
+    function calculateFee(uint256 _amount) external view returns (uint256) {
+        uint256 percentageFeeAmount = (_amount * percentageFee) / BASIS_POINTS;
+        return percentageFeeAmount + fixedFee;
+    }
+
+    /**
+     * @dev Returns detailed fee breakdown for a given amount.
+     * @param _amount Deposit amount in wei.
+     * @return percentageFeeAmount Percentage fee amount.
+     * @return fixedFeeAmount Fixed fee amount.
+     * @return totalFee Total fee amount.
+     */
+    function getFeeBreakdown(uint256 _amount)
+        external
+        view
+        returns (uint256 percentageFeeAmount, uint256 fixedFeeAmount, uint256 totalFee)
+    {
+        percentageFeeAmount = (_amount * percentageFee) / BASIS_POINTS;
+        fixedFeeAmount = fixedFee;
+        totalFee = percentageFeeAmount + fixedFeeAmount;
+    }
+
+    /**
+     * @dev Checks if a commitment exists in the pool.
+     * @param _commitment Commitment hash to check.
+     * @return True if commitment exists.
+     */
+    function isDepositValid(bytes32 _commitment) external view returns (bool) {
+        return s_commitments[_commitment];
+    }
+
+    /**
+     * @dev Returns pool statistics for transparency.
+     * @return totalDeposits Number of total deposits.
+     * @return currentRoot Current Merkle root.
+     * @return currentPercentageFee Current percentage fee.
+     * @return currentFixedFee Current fixed fee.
+     */
+    function getPoolStats()
+        external
+        view
+        returns (uint256 totalDeposits, bytes32 currentRoot, uint256 currentPercentageFee, uint256 currentFixedFee)
+    {
+        totalDeposits = s_nextLeafIndex;
+        currentRoot = getLatestRoot();
+        currentPercentageFee = percentageFee;
+        currentFixedFee = fixedFee;
+    }
+
+    /**
+     * @dev Returns the maximum number of deposits the pool can handle.
+     * @return Maximum number of deposits.
+     */
+    function getMaxPoolSize() external view returns (uint256) {
+        return 2 ** i_depth;
+    }
+
+    /**
+     * @dev Returns the pool utilization percentage.
+     * @return Utilization percentage (0-100).
+     */
+    function getPoolUtilization() external view returns (uint256) {
+        uint256 maxSize = 2 ** i_depth;
+        return (s_nextLeafIndex * 100) / maxSize;
+    }
+
+    /**
+     * @dev Returns whether the pool is full.
+     * @return True if pool is full.
+     */
+    function isPoolFull() external view returns (bool) {
+        return s_nextLeafIndex >= 2 ** i_depth;
     }
 }

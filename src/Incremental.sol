@@ -4,6 +4,12 @@ pragma solidity ^0.8.30;
 import {Field} from "lib/poseidon2-evm/src/Field.sol";
 import {Poseidon2} from "lib/poseidon2-evm/src/Poseidon2.sol";
 
+/**
+ * @title Incremental
+ * @dev Incremental Merkle tree implementation using Poseidon2 hashing
+ * @notice Provides efficient Merkle tree operations for commitment management
+ * @author ShadowPoold Team
+ */
 contract Incremental {
     uint256 public constant FIELD_SIZE = 21888242871839275222246405745257275088548364400416034343698204186575808495617;
     // the "zero" element is the default value for the Merkle tree, it is used to fill in empty nodes keccak256("shadowpool") % FIELD_SIZE
@@ -30,6 +36,11 @@ contract Incremental {
     error IncrementalMerkleTree__MerkleTreeFull(uint32 nextIndex);
     error IncrementalMerkleTree__IndexOutOfBounds(uint256 index);
 
+    /**
+     * @dev Constructor to initialize the Merkle tree with specified depth and hasher
+     * @param _depth The depth of the Merkle tree (must be between 1 and 31)
+     * @param _hasher Address of the Poseidon2 hasher contract
+     */
     constructor(uint32 _depth, Poseidon2 _hasher) {
         if (_depth == 0) {
             revert IncrementalMerkleTree__LevelsShouldBeGreaterThanZero(_depth);
@@ -44,7 +55,10 @@ contract Incremental {
     }
 
     /**
-     * @dev Hash 2 tree leaves, returns Poseidon(_left, _right)
+     * @dev Hash 2 tree leaves using Poseidon2, returns Poseidon(_left, _right)
+     * @param _left The left leaf value
+     * @param _right The right leaf value
+     * @return The hash of the two leaves
      */
     function hashLeftRight(bytes32 _left, bytes32 _right) public view returns (bytes32) {
         // these checks aren't needed since the hash function will return a valid value
@@ -58,6 +72,11 @@ contract Incremental {
         return Field.toBytes32(i_hasher.hash_2(Field.toField(_left), Field.toField(_right)));
     }
 
+    /**
+     * @dev Insert a new leaf into the Merkle tree
+     * @param _leaf The leaf value to insert
+     * @return index The index of the inserted leaf
+     */
     function _insert(bytes32 _leaf) internal returns (uint32 index) {
         uint32 _nextLeafIndex = s_nextLeafIndex;
         if (_nextLeafIndex == uint32(2) ** i_depth) {
@@ -101,7 +120,9 @@ contract Incremental {
     }
 
     /**
-     * @dev Whether the root is present in the root history
+     * @dev Check whether the root is present in the root history
+     * @param _root The root to check
+     * @return True if the root is known, false otherwise
      */
     function isKnownRoot(bytes32 _root) public view returns (bool) {
         // check if they are trying to bypass the check by passing a zero root which is the defualt value
@@ -123,16 +144,18 @@ contract Incremental {
     }
 
     /**
-     * @dev Returns the latest root
+     * @dev Returns the latest root of the Merkle tree
+     * @return The current root value
      */
     function getLatestRoot() public view returns (bytes32) {
         return s_roots[s_currentRootIndex];
     }
 
-    // NOTE: change when you know the hash function to use
-    /// @notice Returns the root of a subtree at the given depth
-    /// @param i The depth of the subtree root to return
-    /// @return The root of the given subtree
+    /**
+     * @notice Returns the root of a subtree at the given depth
+     * @param i The depth of the subtree root to return
+     * @return The root of the given subtree
+     */
     function zeros(uint256 i) public pure returns (bytes32) {
         if (i == 0) return bytes32(0x034f996155f0d9b1a838977011b06a385e8701d10aae926876c9c8a6fa69bf18);
         else if (i == 1) return bytes32(0x2a06a72b1f2b24364e5e4120849b4692bbf91c4bcad66845a399e67022e9f0d9);
