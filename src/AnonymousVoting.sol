@@ -12,9 +12,14 @@ import {IVerifier} from "./Verifier/VotingVerifier.sol";
  * @title AnonymousVoting
  * @dev Anonymous voting system for DAO using zk-proofs
  * Allows token holders to vote anonymously while proving they own tokens
+ * @author Sergey Kerhet
+ *
  */
 contract AnonymousVoting is ReentrancyGuard {
     using SafeERC20 for IERC20;
+
+    uint256 public constant VOTING_PERIOD = 40_320; // ~1 week (12 second blocks)
+    uint256 public constant PERCENTAGE_MULTIPLIER = 100; // For percentage calculations
 
     /// @notice Voting verifier for zk-proofs
     IVerifier public immutable votingVerifier;
@@ -129,7 +134,7 @@ contract AnonymousVoting is ReentrancyGuard {
             revert AnonymousVoting__NullifierAlreadyUsed();
         }
 
-        // Mark nullifier as used
+        // aderyn-ignore-next-line(reentrancy-state-change)
         usedNullifiers[nullifierHash] = true;
 
         // Verify merkle root matches current state
@@ -144,7 +149,7 @@ contract AnonymousVoting is ReentrancyGuard {
         if (!votes.votingActive) {
             votes.votingActive = true;
             votes.startBlock = block.number;
-            votes.endBlock = block.number + 40320; // ~1 week
+            votes.endBlock = block.number + VOTING_PERIOD;
         }
 
         // Verify proposal is still active
@@ -271,7 +276,7 @@ contract AnonymousVoting is ReentrancyGuard {
         totalVotes = votes.totalVotes;
 
         if (totalVotes > 0) {
-            supportPercentage = (forVotes * 100) / totalVotes;
+            supportPercentage = (forVotes * PERCENTAGE_MULTIPLIER) / totalVotes;
         } else {
             supportPercentage = 0;
         }
@@ -289,7 +294,7 @@ contract AnonymousVoting is ReentrancyGuard {
     /// @notice Returns the voting period duration in blocks
     /// @return Voting period duration
     function getVotingPeriodDuration() external pure returns (uint256) {
-        return 40320; // ~1 week
+        return VOTING_PERIOD;
     }
 
     /// @notice Returns the maximum number of proposals the system can handle

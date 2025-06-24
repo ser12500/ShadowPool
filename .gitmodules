@@ -19,3 +19,9 @@
 [submodule "lib/devtools"]
 	path = lib/devtools
 	url = https://github.com/LayerZero-Labs/devtools
+[submodule "lib/forge-std"]
+	path = lib/forge-std
+	url = https://github.com/foundry-rs/forge-std
+[submodule "lib/layerzero-examples"]
+	path = lib/layerzero-examples
+	url = https://github.com/LayerZero-Labs/endpoint-v1-solidity-examples.git

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.30;
+pragma solidity 0.8.30;
 
 import {ReentrancyGuard} from "lib/openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
@@ -13,6 +13,8 @@ import {Incremental, Poseidon2} from "./Incremental.sol";
  * Supports ETH and ERC20 tokens with dynamic fee mechanism and multi-deposit functionality.
  * Integrates with a Noir-generated verifier and supports a 20-level Merkle tree.
  * Governance is handled by DAO contract.
+ * @author Sergey Kerhet
+ *
  */
 contract ShadowPool is ReentrancyGuard, Incremental {
     using SafeERC20 for IERC20;
@@ -21,6 +23,24 @@ contract ShadowPool is ReentrancyGuard, Incremental {
     uint256 public percentageFee; // Fee as percentage (basis points, e.g., 50 = 0.5%)
     uint256 public fixedFee; // Fixed fee in wei
     uint256 public constant BASIS_POINTS = 10000; // 100% = 10000 basis points
+    uint256 public constant MAXIMUM_PERCENTAGE_FEE = 500; // Maximum 5% fee (500 basis points)
+
+    // Anonymity level thresholds
+    uint256 public constant LOW_ANONYMITY_THRESHOLD = 10;
+    uint256 public constant MEDIUM_ANONYMITY_THRESHOLD = 50;
+    uint256 public constant HIGH_ANONYMITY_THRESHOLD = 100;
+
+    // Wait time thresholds (in seconds)
+    uint256 public constant SHORT_WAIT_TIME = 1800; // 30 minutes
+    uint256 public constant LONG_WAIT_TIME = 3600; // 1 hour
+    uint256 public constant SMALL_POOL_THRESHOLD = 20;
+    uint256 public constant MEDIUM_POOL_THRESHOLD = 50;
+
+    // Public inputs array size for Noir verification
+    uint256 public constant PUBLIC_INPUTS_SIZE = 10;
+
+    // Percentage calculation
+    uint256 public constant PERCENTAGE_MULTIPLIER = 100;
 
     // Address of the Noir verifier contract
     IVerifier public immutable i_verifier;
@@ -331,9 +351,9 @@ contract ShadowPool is ReentrancyGuard, Incremental {
      * @param _fixedFee New fixed fee in wei.
      */
     function updateFees(uint256 _percentageFee, uint256 _fixedFee) external onlyDAO {
-        // Limit percentage fee to 5% (500 basis points)
-        if (_percentageFee > 500) {
-            revert Mixer__PercentageFeeTooHigh({maxAllowed: 500, provided: _percentageFee});
+        // Limit percentage fee to 5% (MAXIMUM_PERCENTAGE_FEE basis points)
+        if (_percentageFee > MAXIMUM_PERCENTAGE_FEE) {
+            revert Mixer__PercentageFeeTooHigh({maxAllowed: MAXIMUM_PERCENTAGE_FEE, provided: _percentageFee});
         }
 
         percentageFee = _percentageFee;
@@ -387,7 +407,7 @@ contract ShadowPool is ReentrancyGuard, Incremental {
         uint256[] calldata _amounts
     ) internal pure returns (bytes32[] memory) {
         // Prepare public inputs: [root, nullifier_hashes[3], recipient, token_addresses[3], amounts[3]]
-        bytes32[] memory publicInputs = new bytes32[](10);
+        bytes32[] memory publicInputs = new bytes32[](PUBLIC_INPUTS_SIZE);
         publicInputs[0] = _root;
 
         // Add nullifier hashes (pad to 3 elements)
@@ -439,9 +459,9 @@ contract ShadowPool is ReentrancyGuard, Incremental {
      */
     function getAnonymityLevel() external view returns (string memory) {
         uint256 size = s_nextLeafIndex;
-        if (size < 10) return "Low anonymity";
-        if (size < 50) return "Medium anonymity";
-        if (size < 100) return "High anonymity";
+        if (size < LOW_ANONYMITY_THRESHOLD) return "Low anonymity";
+        if (size < MEDIUM_ANONYMITY_THRESHOLD) return "Medium anonymity";
+        if (size < HIGH_ANONYMITY_THRESHOLD) return "High anonymity";
         return "Maximum anonymity";
     }
 
@@ -451,10 +471,10 @@ contract ShadowPool is ReentrancyGuard, Incremental {
      */
     function getOptimalWithdrawTime() external view returns (uint256) {
         uint256 currentSize = s_nextLeafIndex;
-        if (currentSize < 20) {
-            return 3600; // Wait 1 hour
-        } else if (currentSize < 50) {
-            return 1800; // Wait 30 minutes
+        if (currentSize < SMALL_POOL_THRESHOLD) {
+            return LONG_WAIT_TIME; // Wait 1 hour
+        } else if (currentSize < MEDIUM_POOL_THRESHOLD) {
+            return SHORT_WAIT_TIME; // Wait 30 minutes
         } else {
             return 0; // Can withdraw now
         }
@@ -528,7 +548,7 @@ contract ShadowPool is ReentrancyGuard, Incremental {
      */
     function getPoolUtilization() external view returns (uint256) {
         uint256 maxSize = 2 ** i_depth;
-        return (s_nextLeafIndex * 100) / maxSize;
+        return (s_nextLeafIndex * PERCENTAGE_MULTIPLIER) / maxSize;
     }
 
     /**

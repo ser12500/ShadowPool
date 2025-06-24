@@ -8,12 +8,15 @@ import {Poseidon2} from "lib/poseidon2-evm/src/Poseidon2.sol";
  * @title Incremental
  * @dev Incremental Merkle tree implementation using Poseidon2 hashing
  * @notice Provides efficient Merkle tree operations for commitment management
- * @author ShadowPoold Team
+ * @author Sergey Kerhet
+ *
  */
 contract Incremental {
     uint256 public constant FIELD_SIZE = 21888242871839275222246405745257275088548364400416034343698204186575808495617;
     // the "zero" element is the default value for the Merkle tree, it is used to fill in empty nodes keccak256("shadowpool") % FIELD_SIZE
     bytes32 public constant ZERO_ELEMENT = bytes32(0x034f996155f0d9b1a838977011b06a385e8701d10aae926876c9c8a6fa69bf18);
+    uint32 public constant MAX_MERKLE_TREE_DEPTH = 31; // Maximum depth for Merkle tree (0-31)
+
     Poseidon2 public immutable i_hasher; // instance of the contract which has the Poseidon hash logic
 
     uint32 public immutable i_depth; // the depth of the Merkle tree, i.e. the number of levels in the tree
@@ -45,7 +48,7 @@ contract Incremental {
         if (_depth == 0) {
             revert IncrementalMerkleTree__LevelsShouldBeGreaterThanZero(_depth);
         }
-        if (_depth >= 32) {
+        if (_depth >= MAX_MERKLE_TREE_DEPTH) {
             revert IncrementalMerkleTree__LevelsShouldBeLessThan32(_depth);
         }
         i_depth = _depth;

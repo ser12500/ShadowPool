@@ -1,0 +1,21 @@
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib"]
+remappings = [
+    "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
+    "ds-test/=lib/openzeppelin-contracts/lib/forge-std/lib/ds-test/src/",
+    "erc4626-tests/=lib/openzeppelin-contracts/lib/erc4626-tests/",
+    "forge-std/=lib/poseidon2-evm/lib/forge-std/src/",
+    "foundry-huff/=lib/poseidon2-evm/lib/foundry-huff/src/",
+    "halmos-cheatcodes/=lib/openzeppelin-contracts/lib/halmos-cheatcodes/src/",
+    "huffmate/=lib/poseidon2-evm/lib/huffmate/src/",
+    "openzeppelin-contracts/=lib/openzeppelin-contracts/",
+    "poseidon2-evm/=lib/poseidon2-evm/src/",
+    "solidity-stringutils/=lib/poseidon2-evm/lib/foundry-huff/lib/solidity-stringutils/",
+    "solmate/=lib/poseidon2-evm/lib/huffmate/lib/solmate/src/",
+    "stringutils/=lib/poseidon2-evm/lib/foundry-huff/lib/solidity-stringutils/",
+]
+fuzz_runs = 20
+
+# See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options

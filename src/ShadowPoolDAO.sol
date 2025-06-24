@@ -11,6 +11,7 @@ import {AnonymousVoting} from "./AnonymousVoting.sol";
  * @title ShadowPoolDAO
  * @dev Decentralized governance system for ShadowPool mixer with anonymous voting
  * Allows token holders to propose and vote anonymously on changes to mixer parameters
+ * @author Sergey Kerhet
  */
 contract ShadowPoolDAO is ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -119,8 +120,6 @@ contract ShadowPoolDAO is ReentrancyGuard {
     error DAO__ProposalAlreadyCanceled();
     error DAO__InsufficientTokens();
     error DAO__AlreadyVoted();
-    error DAO__VotingNotActive();
-    error DAO__QuorumNotMet();
     error DAO__TimelockNotExpired();
     error DAO__ExecutionFailed();
     error DAO__InvalidProposal();
