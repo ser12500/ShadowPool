@@ -9,6 +9,7 @@ import {Poseidon2} from "lib/poseidon2-evm/src/Poseidon2.sol";
 import {Field} from "lib/poseidon2-evm/src/Field.sol";
 import {MockERC20} from "./mock/MockERC20.sol";
 import {ShadowPoolDAO} from "../src/ShadowPoolDAO.sol";
+import {TimelockController} from "lib/openzeppelin-contracts/contracts/governance/TimelockController.sol";
 
 /**
  * @title AnonymousVotingTest
@@ -22,6 +23,7 @@ contract AnonymousVotingTest is Test {
     Poseidon2 public poseidon;
     ShadowPoolGovernanceToken public governanceToken;
     ShadowPoolDAO public dao;
+    TimelockController public timelockController;
 
     address public owner;
     address public user1;
@@ -48,15 +50,23 @@ contract AnonymousVotingTest is Test {
         // Deploy anonymous voting contract
         anonymousVoting = new AnonymousVoting(IVerifier(verifier), poseidon, governanceToken, uint32(MERKLE_TREE_DEPTH));
 
+        // Deploy TimelockController
+        address[] memory proposers = new address[](1);
+        proposers[0] = owner;
+        address[] memory executors = new address[](1);
+        executors[0] = address(0); // anyone can execute
+        timelockController = new TimelockController(1 days, proposers, executors, owner);
+
         // Deploy DAO (with minimal parameters)
         dao = new ShadowPoolDAO(
             governanceToken,
-            address(0), // ShadowPool address not needed for these tests
+            address(this),
             1000 * 10 ** 18, // proposalThreshold
             100, // votingPeriod
             5000 * 10 ** 18, // quorumVotes
             1 days, // timelockDelay
-            10 // maxActiveProposals
+            10, // maxActiveProposals
+            timelockController
         );
 
         user1 = makeAddr("user1");

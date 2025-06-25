@@ -7,6 +7,7 @@ import {ShadowPool, IVerifier, Poseidon2} from "../src/ShadowPool.sol";
 import {Incremental} from "../src/Incremental.sol";
 import {ShadowPoolDAO} from "../src/ShadowPoolDAO.sol";
 import {ShadowPoolGovernanceToken} from "../src/ShadowPoolGovernanceToken.sol";
+import {TimelockController} from "lib/openzeppelin-contracts/contracts/governance/TimelockController.sol";
 
 contract DeployDAOScript is Script {
     IVerifier public verifier;
@@ -14,6 +15,7 @@ contract DeployDAOScript is Script {
     Poseidon2 public poseidon;
     ShadowPoolDAO public dao;
     ShadowPoolGovernanceToken public governanceToken;
+    TimelockController public timelockController;
 
     // DAO parameters
     uint256 public constant INITIAL_PERCENTAGE_FEE = 50; // 0.5%
@@ -50,34 +52,47 @@ contract DeployDAOScript is Script {
         governanceToken = new ShadowPoolGovernanceToken(deployer, INITIAL_TOKEN_SUPPLY);
         console.log("Governance Token deployed at:", address(governanceToken));
 
-        // 4. Deploy DAO
-        console.log("Deploying DAO...");
-        dao = new ShadowPoolDAO(
-            governanceToken,
-            address(0), // Placeholder for ShadowPool address
-            PROPOSAL_THRESHOLD,
-            VOTING_PERIOD,
-            QUORUM_VOTES,
-            TIMELOCK_DELAY,
-            MAX_ACTIVE_PROPOSALS
-        );
-        console.log("DAO deployed at:", address(dao));
-
-        // 5. Deploy ShadowPool with DAO address
+        // 4. Deploy ShadowPool first (with temporary DAO address)
         console.log("Deploying ShadowPool...");
         shadowPool = new ShadowPool(
             IVerifier(verifier),
             poseidon,
             uint32(MERKLE_TREE_DEPTH),
-            address(dao), // DAO address
+            deployer, // Temporary owner address
             INITIAL_PERCENTAGE_FEE,
             INITIAL_FIXED_FEE
         );
         console.log("ShadowPool deployed at:", address(shadowPool));
 
-        // 6. Update DAO with ShadowPool address
-        console.log("Updating DAO with ShadowPool address...");
-        dao.updateShadowPoolAddress(address(shadowPool));
+        // 4.1. Deploy TimelockController
+        console.log("Deploying TimelockController...");
+        address[] memory proposers = new address[](1);
+        proposers[0] = deployer;
+        address[] memory executors = new address[](1);
+        executors[0] = address(0); // anyone can execute
+        timelockController = new TimelockController(TIMELOCK_DELAY, proposers, executors, deployer);
+        console.log("TimelockController deployed at:", address(timelockController));
+
+        // 5. Deploy DAO with ShadowPool address
+        console.log("Deploying DAO...");
+        dao = new ShadowPoolDAO(
+            governanceToken,
+            address(shadowPool), // Use actual ShadowPool address
+            PROPOSAL_THRESHOLD,
+            VOTING_PERIOD,
+            QUORUM_VOTES,
+            TIMELOCK_DELAY,
+            MAX_ACTIVE_PROPOSALS,
+            timelockController
+        );
+        console.log("DAO deployed at:", address(dao));
+
+        // 6. Transfer governance token ownership to DAO
+        governanceToken.transferOwnership(address(dao));
+
+        // 7. Update ShadowPool with DAO address
+        console.log("Updating ShadowPool with DAO address...");
+        shadowPool.updateDAOAddress(address(dao));
 
         vm.stopBroadcast();
 

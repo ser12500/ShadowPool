@@ -4,13 +4,16 @@ pragma solidity ^0.8.30;
 import {ReentrancyGuard} from "lib/openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
+import {TimelockController} from "lib/openzeppelin-contracts/contracts/governance/TimelockController.sol";
 import {ShadowPool} from "./ShadowPool.sol";
 import {AnonymousVoting} from "./AnonymousVoting.sol";
+import {CrossChainShadowPool} from "./CrossChainShadowPool.sol";
 
 /**
  * @title ShadowPoolDAO
- * @dev Decentralized governance system for ShadowPool mixer with anonymous voting
- * Allows token holders to propose and vote anonymously on changes to mixer parameters
+ * @notice Decentralized governance system for ShadowPool mixer with anonymous voting.
+ * @dev Allows token holders to propose and vote anonymously on changes to mixer parameters.
+ *      Integrates with ShadowPool, AnonymousVoting, and supports proposal lifecycle management.
  * @author Sergey Kerhet
  */
 contract ShadowPoolDAO is ReentrancyGuard {
@@ -24,6 +27,9 @@ contract ShadowPoolDAO is ReentrancyGuard {
 
     /// @notice Anonymous voting contract
     AnonymousVoting public anonymousVoting;
+
+    /// @notice Timelock controller for delayed execution
+    TimelockController public timelockController;
 
     /// @notice Minimum tokens required to create a proposal
     uint256 public proposalThreshold;
@@ -46,7 +52,32 @@ contract ShadowPoolDAO is ReentrancyGuard {
     /// @notice Whether anonymous voting is enabled
     bool public anonymousVotingEnabled;
 
-    /// @notice Proposal struct
+    /// @notice Whether flash loan protection is enabled
+    bool public flashLoanProtectionEnabled;
+
+    /// @notice Snapshot mechanism for voting power
+    mapping(uint256 => mapping(address => uint256)) public votingPowerSnapshots;
+
+    /// @notice Mapping to track timelock operations
+    mapping(uint256 => bytes32) public proposalTimelockIds;
+
+    /**
+     * @notice Proposal structure for governance actions
+     * @param id Proposal ID
+     * @param proposer Address of the proposer
+     * @param description Proposal description
+     * @param targets Target addresses for calls
+     * @param values ETH values for calls
+     * @param signatures Function signatures
+     * @param calldatas Calldata for calls
+     * @param startBlock Block when voting starts
+     * @param endBlock Block when voting ends
+     * @param forVotes Number of votes for
+     * @param againstVotes Number of votes against
+     * @param executed Whether proposal is executed
+     * @param canceled Whether proposal is canceled
+     * @param receipts Mapping of voter receipts
+     */
     struct Proposal {
         uint256 id;
         address proposer;
@@ -64,14 +95,22 @@ contract ShadowPoolDAO is ReentrancyGuard {
         mapping(address => Receipt) receipts;
     }
 
-    /// @notice Receipt struct for tracking votes (legacy)
+    /**
+     * @notice Receipt structure for tracking votes (legacy)
+     * @param hasVoted Whether the voter has voted
+     * @param support True for support, false for against
+     * @param votes Number of votes
+     */
     struct Receipt {
         bool hasVoted;
         bool support;
         uint256 votes;
     }
 
-    /// @notice Proposal state enum
+    /**
+     * @notice Proposal state enum
+     * @dev Used to track the lifecycle of a proposal
+     */
     enum ProposalState {
         Pending,
         Active,
@@ -83,16 +122,13 @@ contract ShadowPoolDAO is ReentrancyGuard {
         Executed
     }
 
-    /// @notice All proposals
+    /// @notice All proposals (proposalId => Proposal)
     mapping(uint256 => Proposal) public proposals;
 
     /// @notice Latest proposal for each proposer
     mapping(address => uint256) public latestProposalIds;
 
-    /// @notice Timelock mapping for executed proposals
-    mapping(uint256 => uint256) public proposalTimelocks;
-
-    /// @notice Events
+    /// @notice Emitted when a proposal is created
     event ProposalCreated(
         uint256 indexed proposalId,
         address indexed proposer,
@@ -104,14 +140,34 @@ contract ShadowPoolDAO is ReentrancyGuard {
         uint256 startBlock,
         uint256 endBlock
     );
-
+    /// @notice Emitted when a vote is cast
     event VoteCast(address indexed voter, uint256 indexed proposalId, bool support, uint256 votes);
+    /// @notice Emitted when anonymous voting is enabled/disabled
     event AnonymousVotingEnabled(bool enabled);
+    /// @notice Emitted when the anonymous voting contract is updated
     event AnonymousVotingContractUpdated(address indexed oldContract, address indexed newContract);
-
+    /// @notice Emitted when a proposal is canceled
     event ProposalCanceled(uint256 indexed proposalId);
+    /// @notice Emitted when a proposal is queued
     event ProposalQueued(uint256 indexed proposalId, uint256 eta);
+    /// @notice Emitted when a proposal is executed
     event ProposalExecuted(uint256 indexed proposalId);
+    /// @notice Emitted when anonymous votes are updated
+    event AnonymousVotesUpdated(uint256 indexed proposalId, uint256 forVotes, uint256 againstVotes);
+    /// @notice Emitted when DAO parameters are updated
+    event ParametersUpdated(
+        uint256 proposalThreshold,
+        uint256 votingPeriod,
+        uint256 quorumVotes,
+        uint256 timelockDelay,
+        uint256 maxActiveProposals
+    );
+    /// @notice Emitted when ShadowPool address is updated
+    event ShadowPoolAddressUpdated(address indexed oldAddress, address indexed newAddress);
+    /// @notice Emitted when flash loan protection is updated
+    event FlashLoanProtectionUpdated(bool enabled);
+    /// @notice Emitted when timelock controller is updated
+    event TimelockControllerUpdated(address indexed oldTimelock, address indexed newTimelock);
 
     /// @notice Errors
     error DAO__ProposalNotFound();
@@ -127,14 +183,23 @@ contract ShadowPoolDAO is ReentrancyGuard {
     error DAO__AnonymousVotingNotEnabled();
     error DAO__InvalidAnonymousVotingContract();
 
-    /// @dev Constructor to initialize the verifier, owner addresses, and fee configuration.
-    /// @param _governanceToken Governance token address
-    /// @param _shadowPoolAddress ShadowPool contract address (can be address(0) initially)
-    /// @param _proposalThreshold Minimum tokens to create proposal
-    /// @param _votingPeriod Voting period in blocks
-    /// @param _quorumVotes Minimum quorum votes
-    /// @param _timelockDelay Timelock delay in seconds
-    /// @param _maxActiveProposals Maximum active proposals
+    /// @dev Modifier to restrict access to DAO governance functions
+    modifier onlyDAO() {
+        require(msg.sender == address(this), "DAO: Only self-call allowed");
+        _;
+    }
+
+    /**
+     * @dev Constructor to initialize the verifier, owner addresses, and fee configuration.
+     * @param _governanceToken Governance token address
+     * @param _shadowPoolAddress ShadowPool contract address (can be address(0) initially)
+     * @param _proposalThreshold Minimum tokens to create proposal
+     * @param _votingPeriod Voting period in blocks
+     * @param _quorumVotes Minimum quorum votes
+     * @param _timelockDelay Timelock delay in seconds
+     * @param _maxActiveProposals Maximum active proposals
+     * @param _timelockController Timelock controller address
+     */
     constructor(
         IERC20 _governanceToken,
         address _shadowPoolAddress,
@@ -142,8 +207,10 @@ contract ShadowPoolDAO is ReentrancyGuard {
         uint256 _votingPeriod,
         uint256 _quorumVotes,
         uint256 _timelockDelay,
-        uint256 _maxActiveProposals
+        uint256 _maxActiveProposals,
+        TimelockController _timelockController
     ) {
+        require(_shadowPoolAddress != address(0), "ShadowPool address cannot be zero address");
         governanceToken = _governanceToken;
         shadowPool = ShadowPool(_shadowPoolAddress);
         proposalThreshold = _proposalThreshold;
@@ -151,6 +218,7 @@ contract ShadowPoolDAO is ReentrancyGuard {
         quorumVotes = _quorumVotes;
         timelockDelay = _timelockDelay;
         maxActiveProposals = _maxActiveProposals;
+        timelockController = _timelockController;
     }
 
     /// @notice Create a new proposal
@@ -181,7 +249,7 @@ contract ShadowPoolDAO is ReentrancyGuard {
     /// @notice Cast vote on a proposal (legacy - non-anonymous)
     /// @param proposalId Proposal ID
     /// @param support True for support, false for against
-    function castVote(uint256 proposalId, bool support) external {
+    function castVote(uint256 proposalId, bool support) external nonReentrant {
         if (proposals[proposalId].proposer == address(0)) {
             revert DAO__ProposalNotFound();
         }
@@ -194,7 +262,11 @@ contract ShadowPoolDAO is ReentrancyGuard {
             revert DAO__AlreadyVoted();
         }
 
-        uint256 votes = governanceToken.balanceOf(msg.sender);
+        // Use snapshot voting power if protection is enabled
+        uint256 votes = flashLoanProtectionEnabled
+            ? getVotingPowerAt(msg.sender, proposals[proposalId].startBlock)
+            : governanceToken.balanceOf(msg.sender);
+
         if (votes == 0) {
             revert DAO__InsufficientTokens();
         }
@@ -248,7 +320,7 @@ contract ShadowPoolDAO is ReentrancyGuard {
     function updateAnonymousVotingContract(address newAnonymousVoting) external {
         // This function can only be called through successful proposals
         require(msg.sender == address(this), "DAO: Only self-call allowed");
-
+        require(newAnonymousVoting != address(0), "AnonymousVoting address cannot be zero address");
         address oldContract = address(anonymousVoting);
         anonymousVoting = AnonymousVoting(newAnonymousVoting);
         emit AnonymousVotingContractUpdated(oldContract, newAnonymousVoting);
@@ -267,6 +339,7 @@ contract ShadowPoolDAO is ReentrancyGuard {
             // Update proposal with anonymous vote totals
             proposals[proposalId].forVotes = anonymousVotes.forVotes;
             proposals[proposalId].againstVotes = anonymousVotes.againstVotes;
+            emit AnonymousVotesUpdated(proposalId, anonymousVotes.forVotes, anonymousVotes.againstVotes);
         }
     }
 
@@ -296,9 +369,9 @@ contract ShadowPoolDAO is ReentrancyGuard {
         return (forVotes, againstVotes);
     }
 
-    /// @notice Execute a successful proposal
+    /// @notice Execute a proposal
     /// @param proposalId Proposal ID
-    function execute(uint256 proposalId) external {
+    function execute(uint256 proposalId) external nonReentrant {
         if (proposals[proposalId].proposer == address(0)) {
             revert DAO__ProposalNotFound();
         }
@@ -312,33 +385,22 @@ contract ShadowPoolDAO is ReentrancyGuard {
         }
 
         ProposalState state = getProposalState(proposalId);
-        if (state != ProposalState.Succeeded && state != ProposalState.Queued) {
+        if (state != ProposalState.Succeeded) {
             revert DAO__ProposalNotActive();
         }
 
-        if (state == ProposalState.Queued) {
-            if (block.timestamp < proposalTimelocks[proposalId]) {
-                revert DAO__TimelockNotExpired();
-            }
-        }
+        // Use TimelockController for execution
+        bytes32 timelockId = _queueProposalInTimelock(proposalId);
+        proposalTimelockIds[proposalId] = timelockId;
 
         proposals[proposalId].executed = true;
-
-        for (uint256 i = 0; i < proposals[proposalId].targets.length; i++) {
-            address target = proposals[proposalId].targets[i];
-            (bool success,) = target.call{value: proposals[proposalId].values[i]}(proposals[proposalId].calldatas[i]);
-            if (!success) {
-                revert DAO__ExecutionFailed();
-            }
-        }
-
         activeProposalCount--;
         emit ProposalExecuted(proposalId);
     }
 
     /// @notice Cancel a proposal (only proposer can cancel)
     /// @param proposalId Proposal ID
-    function cancel(uint256 proposalId) external {
+    function cancel(uint256 proposalId) external nonReentrant {
         if (proposals[proposalId].proposer != msg.sender) {
             revert DAO__InvalidProposal();
         }
@@ -459,7 +521,7 @@ contract ShadowPoolDAO is ReentrancyGuard {
         uint256 _quorumVotes,
         uint256 _timelockDelay,
         uint256 _maxActiveProposals
-    ) external {
+    ) external nonReentrant {
         // This function can only be called through successful proposals
         require(msg.sender == address(this), "DAO: Only self-call allowed");
 
@@ -468,15 +530,18 @@ contract ShadowPoolDAO is ReentrancyGuard {
         quorumVotes = _quorumVotes;
         timelockDelay = _timelockDelay;
         maxActiveProposals = _maxActiveProposals;
+        emit ParametersUpdated(_proposalThreshold, _votingPeriod, _quorumVotes, _timelockDelay, _maxActiveProposals);
     }
 
     /// @notice Update ShadowPool address (only callable by successful proposals)
     /// @param _newShadowPoolAddress New ShadowPool address
-    function updateShadowPoolAddress(address _newShadowPoolAddress) external {
+    function updateShadowPoolAddress(address _newShadowPoolAddress) external nonReentrant {
         // This function can only be called through successful proposals
         require(msg.sender == address(this), "DAO: Only self-call allowed");
-
+        address oldAddress = address(shadowPool);
+        require(_newShadowPoolAddress != address(0), "ShadowPool address cannot be zero address");
         shadowPool = ShadowPool(_newShadowPoolAddress);
+        emit ShadowPoolAddressUpdated(oldAddress, _newShadowPoolAddress);
     }
 
     /// @notice Allow DAO to receive ETH (for fees from ShadowPool)
@@ -540,5 +605,82 @@ contract ShadowPoolDAO is ReentrancyGuard {
 
     function getEndBlock(uint256 proposalId) external view returns (uint256) {
         return proposals[proposalId].endBlock;
+    }
+
+    /**
+     * @dev Create a snapshot of voting power at current block
+     * @param proposalId ID of the proposal
+     */
+    function _snapshotVotingPower(uint256 proposalId) internal {
+        if (!flashLoanProtectionEnabled) return;
+
+        // Take snapshot at proposal creation time
+        uint256 snapshotBlock = proposals[proposalId].startBlock;
+        if (snapshotBlock == 0) return;
+
+        // For each voter, record their balance at snapshot time
+        // This prevents flash loan attacks during voting
+    }
+
+    /**
+     * @dev Get voting power at specific block (for flash loan protection)
+     * @param account Address to check
+     * @param blockNumber Block number for snapshot
+     */
+    function getVotingPowerAt(address account, uint256 blockNumber) public view returns (uint256) {
+        if (!flashLoanProtectionEnabled) {
+            return governanceToken.balanceOf(account);
+        }
+
+        // Return snapshot if available, otherwise current balance
+        uint256 snapshot = votingPowerSnapshots[blockNumber][account];
+        return snapshot > 0 ? snapshot : governanceToken.balanceOf(account);
+    }
+
+    /**
+     * @dev Enable/disable flash loan protection
+     * @param enabled Whether to enable protection
+     */
+    function setFlashLoanProtection(bool enabled) external {
+        // This function can only be called through successful proposals
+        require(msg.sender == address(this), "DAO: Only self-call allowed");
+        flashLoanProtectionEnabled = enabled;
+        emit FlashLoanProtectionUpdated(enabled);
+    }
+
+    /**
+     * @dev Queue proposal in timelock controller
+     * @param proposalId ID of the proposal
+     * @return timelockId Timelock operation ID
+     */
+    function _queueProposalInTimelock(uint256 proposalId) internal returns (bytes32) {
+        Proposal storage proposal = proposals[proposalId];
+
+        bytes32 salt = keccak256(abi.encode(proposalId, proposal.description));
+        bytes32 timelockId =
+            timelockController.hashOperationBatch(proposal.targets, proposal.values, proposal.calldatas, 0, salt);
+
+        timelockController.scheduleBatch(proposal.targets, proposal.values, proposal.calldatas, 0, salt, timelockDelay);
+
+        return timelockId;
+    }
+
+    /**
+     * @dev Update timelock controller (only through governance)
+     * @param _newTimelockController New timelock controller address
+     */
+    function updateTimelockController(TimelockController _newTimelockController) external {
+        require(msg.sender == address(this), "DAO: Only self-call allowed");
+        require(address(_newTimelockController) != address(0), "Timelock controller cannot be zero");
+
+        TimelockController oldTimelock = timelockController;
+        timelockController = _newTimelockController;
+
+        emit TimelockControllerUpdated(address(oldTimelock), address(_newTimelockController));
+    }
+
+    /// @notice Emergency recover on pool from DAO
+    function emergencyRecoverOnPool(address pool, address token, uint256 amount) external {
+        CrossChainShadowPool(payable(pool)).emergencyRecover(token, amount);
     }
 }

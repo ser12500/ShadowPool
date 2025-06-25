@@ -9,65 +9,91 @@ import {Incremental, Poseidon2} from "./Incremental.sol";
 
 /**
  * @title ShadowPool
- * @dev A multi-currency mixer contract for anonymous transactions using Noir zk-proofs.
- * Supports ETH and ERC20 tokens with dynamic fee mechanism and multi-deposit functionality.
- * Integrates with a Noir-generated verifier and supports a 20-level Merkle tree.
- * Governance is handled by DAO contract.
+ * @notice Multi-currency mixer contract for anonymous transactions using Noir zk-proofs.
+ * @dev Supports ETH and ERC20 tokens with dynamic fee mechanism and multi-deposit functionality.
+ *      Integrates with a Noir-generated verifier and supports a 20-level Merkle tree.
+ *      Governance is handled by DAO contract.
  * @author Sergey Kerhet
- *
  */
 contract ShadowPool is ReentrancyGuard, Incremental {
     using SafeERC20 for IERC20;
 
-    // Fee configuration
-    uint256 public percentageFee; // Fee as percentage (basis points, e.g., 50 = 0.5%)
-    uint256 public fixedFee; // Fixed fee in wei
-    uint256 public constant BASIS_POINTS = 10000; // 100% = 10000 basis points
-    uint256 public constant MAXIMUM_PERCENTAGE_FEE = 500; // Maximum 5% fee (500 basis points)
+    /// @notice Fee as percentage (basis points, e.g., 50 = 0.5%)
+    uint256 public percentageFee;
+    /// @notice Fixed fee in wei
+    uint256 public fixedFee;
+    /// @notice Number of basis points in 100%
+    uint256 public constant BASIS_POINTS = 1e4; // 10000 basis points
+    /// @notice Maximum allowed percentage fee (in basis points)
+    uint256 public constant MAXIMUM_PERCENTAGE_FEE = 500; // 5%
 
-    // Anonymity level thresholds
+    /// @notice Thresholds for anonymity levels (number of deposits)
     uint256 public constant LOW_ANONYMITY_THRESHOLD = 10;
     uint256 public constant MEDIUM_ANONYMITY_THRESHOLD = 50;
     uint256 public constant HIGH_ANONYMITY_THRESHOLD = 100;
 
-    // Wait time thresholds (in seconds)
+    /// @notice Wait time thresholds (in seconds)
     uint256 public constant SHORT_WAIT_TIME = 1800; // 30 minutes
     uint256 public constant LONG_WAIT_TIME = 3600; // 1 hour
     uint256 public constant SMALL_POOL_THRESHOLD = 20;
     uint256 public constant MEDIUM_POOL_THRESHOLD = 50;
 
-    // Public inputs array size for Noir verification
+    /// @notice Public inputs array size for Noir verification
     uint256 public constant PUBLIC_INPUTS_SIZE = 10;
+    /// @notice Group size for public inputs (nullifiers, tokens, amounts)
+    uint256 public constant PUBLIC_INPUTS_GROUP_SIZE = 3;
+    /// @notice Offset for tokens in public inputs
+    uint256 public constant PUBLIC_INPUTS_TOKENS_OFFSET = 5;
+    /// @notice Offset for amounts in public inputs
+    uint256 public constant PUBLIC_INPUTS_AMOUNTS_OFFSET = 8;
 
-    // Percentage calculation
+    /// @notice Multiplier for percentage calculations
     uint256 public constant PERCENTAGE_MULTIPLIER = 100;
 
-    // Address of the Noir verifier contract
+    /// @notice Address of the Noir verifier contract
     IVerifier public immutable i_verifier;
 
-    // Address of the DAO contract
+    /// @notice Address of the DAO contract
     address public daoAddress;
 
-    // Mapping to track used nullifiers and prevent double-spending
+    /// @notice Mapping to track used nullifiers and prevent double-spending
     mapping(bytes32 => bool) public s_nullifiers;
 
-    // Mapping to track commitments and ensure uniqueness
+    /// @notice Mapping to track commitments and ensure uniqueness
     mapping(bytes32 => bool) public s_commitments;
 
-    // Structure for multi-deposit
+    /**
+     * @notice Deposit structure for multi-deposit functionality
+     * @param token Address(0) for ETH, ERC20 address for tokens
+     * @param amount Amount to deposit
+     * @param commitment Commitment hash (Poseidon2(nullifier, secret, token_address, amount))
+     */
     struct Deposit {
-        address token; // Address(0) for ETH, ERC20 address for tokens
+        address token;
         uint256 amount;
         bytes32 commitment;
     }
+    /// @notice Mapping to track pending commitments (commitment => timestamp)
 
-    // Events for deposit and withdrawal tracking
+    mapping(bytes32 => uint256) public s_pendingCommitments;
+
+    /// @notice Minimum delay for reveal phase (in seconds)
+    uint256 public constant REVEAL_DELAY = 300; // 5 minutes
+
+    /// @notice Emitted when a single deposit is made
     event SingleDeposit(bytes32 indexed commitment, uint32 leafIndex, uint256 timestamp);
+    /// @notice Emitted when multiple deposits are made in one transaction
     event MultiDeposit(bytes32[] commitments, uint32[] leafIndices, uint256 timestamp);
+    /// @notice Emitted when a withdrawal is performed
     event Withdrawal(address indexed to, bytes32[] nullifierHashes, address[] tokens, uint256[] amounts);
+    /// @notice Emitted when fee parameters are updated
     event FeeUpdated(uint256 percentageFee, uint256 fixedFee);
+    /// @notice Emitted when a fee is collected
     event FeeCollected(address indexed token, uint256 amount);
+    /// @notice Emitted when DAO address is updated
     event DAOUpdated(address indexed oldDAO, address indexed newDAO);
+    /// @notice Emitted when a commitment is submitted
+    event CommitmentSubmitted(bytes32 indexed commitment, address indexed user, uint256 value, uint256 timestamp);
 
     /**
      * @notice Error that occurs when the expected and actual deposit values do not match.
@@ -164,6 +190,7 @@ contract ShadowPool is ReentrancyGuard, Incremental {
         uint256 _percentageFee,
         uint256 _fixedFee
     ) Incremental(_merkleTreeDepth, _hasher) {
+        require(_daoAddress != address(0), "DAO address cannot be zero address");
         i_verifier = _verifier;
         daoAddress = _daoAddress;
         percentageFee = _percentageFee;
@@ -184,6 +211,7 @@ contract ShadowPool is ReentrancyGuard, Incremental {
         for (uint256 i = 0; i < _deposits.length; i++) {
             Deposit calldata dep = _deposits[i];
 
+            // aderyn-ignore-next-line(require-revert-in-loop)
             // Check if the commitment is already added
             if (s_commitments[dep.commitment]) {
                 revert Mixer__CommitmentAlreadyAdded(dep.commitment);
@@ -233,6 +261,7 @@ contract ShadowPool is ReentrancyGuard, Incremental {
                 uint256 totalFee = percentageFeeAmount + fixedFee;
 
                 if (totalFee > 0) {
+                    require(daoAddress != address(0), "DAO address cannot be zero address");
                     (bool success,) = daoAddress.call{value: totalFee}("");
                     if (!success) {
                         revert Mixer__PaymentFailed({recipient: daoAddress, amount: totalFee});
@@ -273,6 +302,7 @@ contract ShadowPool is ReentrancyGuard, Incremental {
 
         // Transfer fee to owner after commitment is added
         if (totalFee > 0) {
+            require(daoAddress != address(0), "DAO address cannot be zero address");
             (bool success,) = daoAddress.call{value: totalFee}("");
             if (!success) {
                 revert Mixer__PaymentFailed({recipient: daoAddress, amount: totalFee});
@@ -411,7 +441,7 @@ contract ShadowPool is ReentrancyGuard, Incremental {
         publicInputs[0] = _root;
 
         // Add nullifier hashes (pad to 3 elements)
-        for (uint256 i = 0; i < 3; i++) {
+        for (uint256 i = 0; i < PUBLIC_INPUTS_GROUP_SIZE; i++) {
             if (i < _nullifierHashes.length) {
                 publicInputs[1 + i] = _nullifierHashes[i];
             } else {
@@ -423,27 +453,25 @@ contract ShadowPool is ReentrancyGuard, Incremental {
         publicInputs[4] = bytes32(uint256(uint160(_recipient)));
 
         // Add token addresses (pad to 3 elements)
-        for (uint256 i = 0; i < 3; i++) {
+        for (uint256 i = 0; i < PUBLIC_INPUTS_GROUP_SIZE; i++) {
             if (i < _tokens.length) {
-                publicInputs[5 + i] = bytes32(uint256(uint160(_tokens[i])));
+                publicInputs[PUBLIC_INPUTS_TOKENS_OFFSET + i] = bytes32(uint256(uint160(_tokens[i])));
             } else {
-                publicInputs[5 + i] = bytes32(0);
+                publicInputs[PUBLIC_INPUTS_TOKENS_OFFSET + i] = bytes32(0);
             }
         }
 
         // Add amounts (pad to 3 elements)
-        for (uint256 i = 0; i < 3; i++) {
+        for (uint256 i = 0; i < PUBLIC_INPUTS_GROUP_SIZE; i++) {
             if (i < _amounts.length) {
-                publicInputs[8 + i] = bytes32(_amounts[i]);
+                publicInputs[PUBLIC_INPUTS_AMOUNTS_OFFSET + i] = bytes32(_amounts[i]);
             } else {
-                publicInputs[8 + i] = bytes32(0);
+                publicInputs[PUBLIC_INPUTS_AMOUNTS_OFFSET + i] = bytes32(0);
             }
         }
 
         return publicInputs;
     }
-
-    // ============ USER UTILITY FUNCTIONS ============
 
     /**
      * @dev Returns the current number of deposits in the pool.
@@ -557,5 +585,99 @@ contract ShadowPool is ReentrancyGuard, Incremental {
      */
     function isPoolFull() external view returns (bool) {
         return s_nextLeafIndex >= 2 ** i_depth;
+    }
+
+    /**
+     * @dev Commit phase - user commits to a deposit without revealing details
+     * @param _commitmentHash Hash of the commitment
+     */
+    function commit(bytes32 _commitmentHash) external payable {
+        require(msg.value > 0, "Must send ETH");
+        require(s_pendingCommitments[_commitmentHash] == 0, "Commitment already exists");
+
+        s_pendingCommitments[_commitmentHash] = block.timestamp;
+        emit CommitmentSubmitted(_commitmentHash, msg.sender, msg.value, block.timestamp);
+    }
+
+    /**
+     * @dev Reveal phase - user reveals deposit details after delay
+     * @param _nullifier User's nullifier
+     * @param _secret User's secret
+     * @param _token Token address (address(0) for ETH)
+     * @param _amount Amount to deposit
+     */
+    function reveal(bytes32 _nullifier, bytes32 _secret, address _token, uint256 _amount) external {
+        bytes32 commitment = generateCommitment(_token, _amount, uint256(_nullifier), uint256(_secret));
+
+        require(s_pendingCommitments[commitment] > 0, "Commitment not found");
+        require(block.timestamp >= s_pendingCommitments[commitment] + REVEAL_DELAY, "Reveal delay not met");
+
+        // Clear pending commitment
+        delete s_pendingCommitments[commitment];
+
+        // Process the actual deposit
+        _processDeposit(_token, _amount, commitment);
+    }
+
+    /**
+     * @dev Internal function to process deposit after reveal
+     */
+    function _processDeposit(address _token, uint256 _amount, bytes32 _commitment) internal {
+        // Check if the commitment is already added
+        if (s_commitments[_commitment]) {
+            revert Mixer__CommitmentAlreadyAdded(_commitment);
+        }
+
+        // Calculate fee for this deposit
+        uint256 percentageFeeAmount = (_amount * percentageFee) / BASIS_POINTS;
+        uint256 totalFee = percentageFeeAmount + fixedFee;
+
+        // Ensure deposit amount is greater than fee
+        if (_amount <= totalFee) {
+            revert Mixer__FeeExceedsDepositValue({expected: _amount, actual: totalFee});
+        }
+
+        // Handle ERC20 deposits
+        if (_token != address(0)) {
+            IERC20(_token).safeTransferFrom(msg.sender, address(this), _amount);
+
+            // Transfer fee to owner immediately for ERC20
+            if (totalFee > 0) {
+                IERC20(_token).safeTransfer(daoAddress, totalFee);
+                emit FeeCollected(_token, totalFee);
+            }
+        }
+
+        // Add the commitment to the mapping
+        s_commitments[_commitment] = true;
+
+        // Insert commitment into the Merkle tree
+        uint32 leafIndex = _insert(_commitment);
+
+        // Transfer ETH fee to owner if this is an ETH deposit
+        if (_token == address(0)) {
+            if (totalFee > 0) {
+                require(daoAddress != address(0), "DAO address cannot be zero address");
+                (bool success,) = daoAddress.call{value: totalFee}("");
+                if (!success) {
+                    revert Mixer__PaymentFailed({recipient: daoAddress, amount: totalFee});
+                }
+                emit FeeCollected(address(0), totalFee);
+            }
+        }
+
+        // Emit deposit event
+        emit SingleDeposit(_commitment, leafIndex, block.timestamp);
+    }
+
+    /**
+     * @dev Generate commitment hash
+     */
+    function generateCommitment(address _token, uint256 _amount, uint256 _nullifier, uint256 _secret)
+        public
+        view
+        returns (bytes32)
+    {
+        return keccak256(abi.encodePacked(_nullifier, _secret, _token, _amount));
     }
 }

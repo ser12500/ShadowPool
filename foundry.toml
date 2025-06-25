@@ -18,4 +18,12 @@ remappings = [
 ]
 fuzz_runs = 20
 
+# Optimizer settings for large contracts
+optimizer = true
+optimizer_runs = 50000
+
+# Increase contract size limit and stack optimization
+via_ir = false
+optimizer_details = { yul = true, yul_details = { stack_allocation = true } }
+
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options

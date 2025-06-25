@@ -97,6 +97,10 @@ contract DemoScript is Script {
         voting = new AnonymousVoting(IVerifierVoting(verifierAddress), hasher, IERC20(address(mockToken)), 20);
         console.log("AnonymousVoting deployed at:", address(voting));
 
+        // Set DAO address - use correct ShadowPoolDAO address
+        daoAddress = address(0x1bCF6726C2eC8C64d1621349337856330cB3D081); // ShadowPoolDAO from deployment
+        console.log("DAO address:", daoAddress);
+
         // Deploy ShadowPool
         shadowPool = new ShadowPool(
             IVerifierPool(verifierAddress),
@@ -107,10 +111,6 @@ contract DemoScript is Script {
             0.001 ether // 0.001 ETH fixed fee
         );
         console.log("ShadowPool deployed at:", address(shadowPool));
-
-        // Set DAO address - use correct ShadowPoolDAO address
-        daoAddress = address(0x1bCF6726C2eC8C64d1621349337856330cB3D081); // ShadowPoolDAO from deployment
-        console.log("DAO address:", daoAddress);
     }
 
     /**

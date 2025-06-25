@@ -9,6 +9,7 @@ import {LZEndpointMock} from "lib/layerzero-examples/contracts/lzApp/mocks/LZEnd
 import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {MockERC20} from "./mock/MockERC20.sol";
 import {ShadowPoolDAO} from "../src/ShadowPoolDAO.sol";
+import {TimelockController} from "lib/openzeppelin-contracts/contracts/governance/TimelockController.sol";
 
 /**
  * @title CrossChainShadowPoolTest
@@ -22,6 +23,7 @@ contract CrossChainShadowPoolTest is Test {
     LZEndpointMock public lzEndpointMock;
     MockERC20 public mockToken;
     ShadowPoolDAO public dao;
+    TimelockController public timelockController;
     address public daoAddress;
 
     address public user1 = makeAddr("user1");
@@ -29,6 +31,7 @@ contract CrossChainShadowPoolTest is Test {
     address public user3 = makeAddr("user3");
     address public user4 = makeAddr("user4");
     address public user5 = makeAddr("user5");
+    address public daoOwner = makeAddr("daoOwner");
 
     uint256 public constant DEPOSIT_AMOUNT = 0.01 ether;
     uint256 public constant TOKEN_AMOUNT = 0.1 ether;
@@ -58,32 +61,47 @@ contract CrossChainShadowPoolTest is Test {
         // Deploy mock LayerZero endpoint
         lzEndpointMock = new LZEndpointMock(1); // Chain ID 1 for testing
 
+        // Configure LayerZeroMock with zero fees for testing
+        lzEndpointMock.setRelayerPrice(0, 0, 0, 0, 0); // Zero gas price and fees
+        lzEndpointMock.setProtocolFee(0, 0); // Zero protocol fee
+        lzEndpointMock.setOracleFee(0); // Zero oracle fee
+
         // Deploy dependencies
         poseidon = new Poseidon2();
         verifier = new HonkVerifier();
-
         // Deploy mock governance token
         mockToken = new MockERC20("MockGov", "MGOV");
-        mockToken.mint(address(this), 1_000_000 ether);
+        mockToken.mint(daoOwner, 1_000_000 ether);
+        // Deploy CrossChainShadowPool with daoOwner as owner
+        crossChainPool = new CrossChainShadowPool(
+            verifier, poseidon, MERKLE_TREE_DEPTH, daoOwner, PERCENTAGE_FEE, FIXED_FEE, address(lzEndpointMock)
+        );
+        // Force owner change through storage (slot 0)
+        vm.store(address(crossChainPool), bytes32(uint256(0)), bytes32(uint256(uint160(daoOwner))));
 
-        // Deploy DAO contract с нужными параметрами
+        // Deploy TimelockController
+        address[] memory proposers = new address[](1);
+        proposers[0] = daoOwner;
+        address[] memory executors = new address[](1);
+        executors[0] = address(0); // anyone can execute
+        timelockController = new TimelockController(0, proposers, executors, daoOwner);
+
+        // Deploy DAO
         dao = new ShadowPoolDAO(
-            IERC20(address(mockToken)), // governanceToken
-            address(0), // shadowPoolAddress (можно обновить позже)
+            IERC20(address(mockToken)),
+            address(crossChainPool),
             1 ether, // proposalThreshold
             100, // votingPeriod
             1 ether, // quorumVotes
             0, // timelockDelay
-            10 // maxActiveProposals
+            10, // maxActiveProposals
+            timelockController
         );
         daoAddress = address(dao);
-        vm.deal(daoAddress, 100 ether); // Fund DAO contract
-
-        // Deploy CrossChainShadowPool with DAO contract address
-        crossChainPool = new CrossChainShadowPool(
-            verifier, poseidon, MERKLE_TREE_DEPTH, daoAddress, PERCENTAGE_FEE, FIXED_FEE, address(lzEndpointMock)
-        );
-
+        // updateDAO is called strictly from daoOwner
+        vm.startPrank(daoOwner);
+        crossChainPool.updateDAO(address(dao));
+        vm.stopPrank();
         // Fund users
         vm.deal(user1, 1000 ether);
         vm.deal(user2, 1000 ether);
@@ -92,22 +110,26 @@ contract CrossChainShadowPoolTest is Test {
         vm.deal(user5, 1000 ether);
         mockToken.mint(user1, TOKEN_AMOUNT);
         mockToken.mint(user2, TOKEN_AMOUNT);
-
         // Fund the pool with ETH for LayerZero fees
         vm.deal(address(crossChainPool), 100 ether);
-
-        // Configure LayerZero trusted remotes
-        vm.startPrank(daoAddress);
+        // Configure LayerZero trusted remotes (onlyOwner)
+        vm.startPrank(daoOwner);
         crossChainPool.setTrustedRemoteAddress(137, abi.encodePacked(address(crossChainPool))); // Polygon
         crossChainPool.setTrustedRemoteAddress(56, abi.encodePacked(address(crossChainPool))); // BNB Chain
         vm.stopPrank();
-
         // Configure LayerZero endpoint lookup for cross-chain communication
         lzEndpointMock.setDestLzEndpoint(address(crossChainPool), address(lzEndpointMock));
+
+        // Configure allowed chains for cross-chain operations
+        vm.startPrank(daoOwner);
+        crossChainPool.setAllowedChain(137, true); // Polygon
+        crossChainPool.setAllowedChain(56, true); // BNB Chain
+        crossChainPool.setAllowedChain(1, true); // Current chain
+        vm.stopPrank();
     }
 
-    function _getRequiredValue(uint256 depositAmount, uint16[] memory targetChainIds) internal returns (uint256) {
-        (uint256 lzFee,) = crossChainPool.estimateCrossChainSyncFee(targetChainIds, false);
+    function _getRequiredValue(uint256 depositAmount, uint16[] memory chainIds) internal returns (uint256) {
+        (uint256 lzFee,) = crossChainPool.estimateCrossChainSyncFee(chainIds, false);
         uint256 percentageFee = (depositAmount * PERCENTAGE_FEE) / 10000;
         uint256 totalFee = percentageFee + FIXED_FEE;
         return depositAmount + totalFee + lzFee;
@@ -131,8 +153,10 @@ contract CrossChainShadowPoolTest is Test {
         deposits[0].targetChainIds[0] = 137; // Polygon
         // Approve token spending
         mockToken.approve(address(crossChainPool), TOKEN_AMOUNT);
-        // Perform cross-chain deposit with ETH for LayerZero fees
-        crossChainPool.multiDeposit{value: 1 ether}(deposits);
+        // Ensure LayerZeroMock has sufficient ETH for fees
+        vm.deal(address(lzEndpointMock), 1000 ether);
+        // Perform cross-chain deposit with minimal ETH for LayerZero fees
+        crossChainPool.multiDeposit{value: 0.1 ether}(deposits);
         vm.stopPrank();
         // Verify commitment was added
         assertTrue(crossChainPool.s_commitments(TEST_COMMITMENT));
@@ -214,6 +238,11 @@ contract CrossChainShadowPoolTest is Test {
     }
 
     function test_EstimateCrossChainSyncFee() public {
+        // Set LayerZeroMock fees
+        lzEndpointMock.setRelayerPrice(1000000000, 20000000000, 1000000000000000000, 200000, 16);
+        lzEndpointMock.setProtocolFee(0, 1000); // 10% protocol fee
+        lzEndpointMock.setOracleFee(1000000000000000); // 0.001 ETH oracle fee
+
         (uint256 nativeFee, uint256 zroFee) = crossChainPool.estimateCrossChainSyncFee(targetChainIds, false);
 
         // Fees should be greater than 0
@@ -317,13 +346,19 @@ contract CrossChainShadowPoolTest is Test {
     }
 
     function test_DAOCanReceiveETH() public {
-        address dao = address(crossChainPool.daoAddress());
-        uint256 before = dao.balance;
-        (bool success,) = dao.call{value: 1 ether}("");
+        address daoContractAddress = address(crossChainPool.daoAddress());
+        uint256 before = daoContractAddress.balance;
+        (bool success,) = daoContractAddress.call{value: 1 ether}("");
         console.log("Send ETH to DAO success:", success);
         console.log("DAO balance before:", before);
-        console.log("DAO balance after:", dao.balance);
+        console.log("DAO balance after:", daoContractAddress.balance);
         assertTrue(success, "DAO did not accept ETH via call");
-        assertEq(dao.balance, before + 1 ether, "DAO balance did not increase");
+        assertEq(daoContractAddress.balance, before + 1 ether, "DAO balance did not increase");
+    }
+
+    function test_OwnerAndDAOAddress() public {
+        console.log("owner in test_OwnerAndDAOAddress", crossChainPool.owner());
+        console.log("daoAddress in test_OwnerAndDAOAddress", crossChainPool.daoAddress());
+        assertTrue(true);
     }
 }

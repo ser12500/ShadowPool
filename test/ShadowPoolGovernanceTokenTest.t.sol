@@ -4,18 +4,27 @@ pragma solidity ^0.8.30;
 import {Test} from "lib/forge-std/src/Test.sol";
 import {ShadowPoolGovernanceToken} from "../src/ShadowPoolGovernanceToken.sol";
 import {ShadowPoolDAO} from "../src/ShadowPoolDAO.sol";
+import {TimelockController} from "lib/openzeppelin-contracts/contracts/governance/TimelockController.sol";
 
 contract ShadowPoolGovernanceTokenTest is Test {
     ShadowPoolGovernanceToken public token;
     address public owner;
     address public user1;
     address public user2;
+    TimelockController public timelockController;
 
     function setUp() public {
         owner = address(this);
         user1 = address(0x1);
         user2 = address(0x2);
         token = new ShadowPoolGovernanceToken(owner, 1000 ether);
+
+        // Deploy TimelockController
+        address[] memory proposers = new address[](1);
+        proposers[0] = owner;
+        address[] memory executors = new address[](1);
+        executors[0] = address(0); // anyone can execute
+        timelockController = new TimelockController(1 days, proposers, executors, owner);
     }
 
     // Test: Owner receives initial supply
@@ -60,14 +69,17 @@ contract ShadowPoolGovernanceTokenTest is Test {
 
     // Integration: Use token to create a proposal in DAO
     function testTokenUsedForProposalInDAO() public {
+        // Deploy ShadowPool with temporary DAO
+        address tempShadowPool = address(this);
         ShadowPoolDAO dao = new ShadowPoolDAO(
             token,
-            address(0),
+            tempShadowPool,
             100 * 10 ** 18, // proposalThreshold
             100, // votingPeriod
             100 * 10 ** 18, // quorumVotes
             1 days,
-            10
+            10,
+            timelockController
         );
         // Transfer enough tokens to user1
         token.transfer(address(0x1), 200 * 10 ** 18);
@@ -84,7 +96,10 @@ contract ShadowPoolGovernanceTokenTest is Test {
 
     // Integration: Transfer tokens, then vote in DAO
     function testTokenTransferAndVoteInDAO() public {
-        ShadowPoolDAO dao = new ShadowPoolDAO(token, address(0), 100 * 10 ** 18, 100, 100 * 10 ** 18, 1 days, 10);
+        address tempShadowPool = address(this);
+        ShadowPoolDAO dao = new ShadowPoolDAO(
+            token, tempShadowPool, 100 * 10 ** 18, 100, 100 * 10 ** 18, 1 days, 10, timelockController
+        );
         // Transfer tokens to user1 and user2
         token.transfer(address(0x1), 100 * 10 ** 18);
         token.transfer(address(0x2), 100 * 10 ** 18);
@@ -109,7 +124,9 @@ contract ShadowPoolGovernanceTokenTest is Test {
 
     // Integration: TransferFrom and then vote
     function testTransferFromAndVote() public {
-        ShadowPoolDAO dao = new ShadowPoolDAO(token, address(0), 50 * 10 ** 18, 100, 50 * 10 ** 18, 1 days, 10);
+        address tempShadowPool = address(this);
+        ShadowPoolDAO dao =
+            new ShadowPoolDAO(token, tempShadowPool, 50 * 10 ** 18, 100, 50 * 10 ** 18, 1 days, 10, timelockController);
         // Approve user1 to spend owner's tokens
         token.approve(address(0x1), 60 * 10 ** 18);
         vm.prank(address(0x1));
@@ -134,7 +151,9 @@ contract ShadowPoolGovernanceTokenTest is Test {
 
     // Integration: Approve, transferFrom, and proposal creation
     function testApproveTransferFromAndProposal() public {
-        ShadowPoolDAO dao = new ShadowPoolDAO(token, address(0), 30 * 10 ** 18, 100, 30 * 10 ** 18, 1 days, 10);
+        address tempShadowPool = address(this);
+        ShadowPoolDAO dao =
+            new ShadowPoolDAO(token, tempShadowPool, 30 * 10 ** 18, 100, 30 * 10 ** 18, 1 days, 10, timelockController);
         // Approve user2 to spend owner's tokens
         token.approve(address(0x2), 40 * 10 ** 18);
         vm.prank(address(0x2));
@@ -159,7 +178,9 @@ contract ShadowPoolGovernanceTokenTest is Test {
 
     // Integration: Transfer tokens to a contract and vote
     function testTransferToContractAndVote() public {
-        ShadowPoolDAO dao = new ShadowPoolDAO(token, address(0), 10 * 10 ** 18, 100, 10 * 10 ** 18, 1 days, 10);
+        address tempShadowPool = address(this);
+        ShadowPoolDAO dao =
+            new ShadowPoolDAO(token, tempShadowPool, 10 * 10 ** 18, 100, 10 * 10 ** 18, 1 days, 10, timelockController);
         // Deploy a dummy contract
         address contractAddr = address(new DummyVoter());
         token.transfer(contractAddr, 15 * 10 ** 18);

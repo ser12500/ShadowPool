@@ -6,41 +6,49 @@ import {Poseidon2} from "lib/poseidon2-evm/src/Poseidon2.sol";
 
 /**
  * @title Incremental
- * @dev Incremental Merkle tree implementation using Poseidon2 hashing
- * @notice Provides efficient Merkle tree operations for commitment management
+ * @notice Incremental Merkle tree implementation using Poseidon2 hashing.
+ * @dev Provides efficient Merkle tree operations for commitment management in mixers and privacy protocols.
  * @author Sergey Kerhet
- *
  */
 contract Incremental {
+    /// @notice Field size for the Merkle tree (BN254 curve prime)
     uint256 public constant FIELD_SIZE = 21888242871839275222246405745257275088548364400416034343698204186575808495617;
-    // the "zero" element is the default value for the Merkle tree, it is used to fill in empty nodes keccak256("shadowpool") % FIELD_SIZE
+    /// @notice The "zero" element used to fill empty nodes in the Merkle tree
     bytes32 public constant ZERO_ELEMENT = bytes32(0x034f996155f0d9b1a838977011b06a385e8701d10aae926876c9c8a6fa69bf18);
-    uint32 public constant MAX_MERKLE_TREE_DEPTH = 31; // Maximum depth for Merkle tree (0-31)
+    /// @notice Maximum depth for Merkle tree (0-31)
+    uint32 public constant MAX_MERKLE_TREE_DEPTH = 31;
 
-    Poseidon2 public immutable i_hasher; // instance of the contract which has the Poseidon hash logic
+    /// @notice Instance of the contract which has the Poseidon hash logic
+    Poseidon2 public immutable i_hasher;
+    /// @notice The depth of the Merkle tree (number of levels)
+    uint32 public immutable i_depth;
 
-    uint32 public immutable i_depth; // the depth of the Merkle tree, i.e. the number of levels in the tree
+    /// @notice Mapping for cached subtrees (for efficient updates)
+    mapping(uint256 => bytes32) public s_cachedSubtrees;
+    /// @notice Mapping for Merkle tree roots (history)
+    mapping(uint256 => bytes32) public s_roots;
+    /// @notice Number of roots stored to compare proofs against
+    uint32 public constant ROOT_HISTORY_SIZE = 30;
+    /// @notice Index in ROOT_HISTORY_SIZE where the current root is stored
+    uint32 public s_currentRootIndex = 0;
+    /// @notice Index of the next leaf to be inserted into the tree
+    uint32 public s_nextLeafIndex = 0;
 
-    // the following variables are made public for easier testing and debugging and
-    // are not supposed to be accessed in regular code
-
-    // s_cachedSubtrees and roots could be bytes32[size], but using mappings makes it cheaper because
-    // it removes index range check on every interaction
-    mapping(uint256 => bytes32) public s_cachedSubtrees; // subtrees for already stored commitments
-    mapping(uint256 => bytes32) public s_roots; // ROOT_HISTORY_SIZE roots for the Merkle tree
-    uint32 public constant ROOT_HISTORY_SIZE = 30; // the number of roots stored to compare proofs against
-    uint32 public s_currentRootIndex = 0; // where in ROOT_HISTORY_SIZE the current root is stored in the roots array
-    uint32 public s_nextLeafIndex = 0; // the index of the next leaf index to be inserted into the tree
-
+    /// @notice Error: left value out of field range
     error IncrementalMerkleTree__LeftValueOutOfRange(bytes32 left);
+    /// @notice Error: right value out of field range
     error IncrementalMerkleTree__RightValueOutOfRange(bytes32 right);
+    /// @notice Error: tree depth must be greater than zero
     error IncrementalMerkleTree__LevelsShouldBeGreaterThanZero(uint32 depth);
+    /// @notice Error: tree depth must be less than 32
     error IncrementalMerkleTree__LevelsShouldBeLessThan32(uint32 depth);
+    /// @notice Error: Merkle tree is full
     error IncrementalMerkleTree__MerkleTreeFull(uint32 nextIndex);
+    /// @notice Error: index out of bounds
     error IncrementalMerkleTree__IndexOutOfBounds(uint256 index);
 
     /**
-     * @dev Constructor to initialize the Merkle tree with specified depth and hasher
+     * @notice Constructor to initialize the Merkle tree with specified depth and hasher
      * @param _depth The depth of the Merkle tree (must be between 1 and 31)
      * @param _hasher Address of the Poseidon2 hasher contract
      */
@@ -53,30 +61,29 @@ contract Incremental {
         }
         i_depth = _depth;
         i_hasher = _hasher;
-
         s_roots[0] = zeros(_depth);
     }
 
     /**
-     * @dev Hash 2 tree leaves using Poseidon2, returns Poseidon(_left, _right)
+     * @notice Hash two tree leaves using Poseidon2
+     * @dev Returns Poseidon(_left, _right)
      * @param _left The left leaf value
      * @param _right The right leaf value
      * @return The hash of the two leaves
      */
     function hashLeftRight(bytes32 _left, bytes32 _right) public view returns (bytes32) {
-        // these checks aren't needed since the hash function will return a valid value
         if (uint256(_left) >= FIELD_SIZE) {
             revert IncrementalMerkleTree__LeftValueOutOfRange(_left);
         }
         if (uint256(_right) >= FIELD_SIZE) {
             revert IncrementalMerkleTree__RightValueOutOfRange(_right);
         }
-
         return Field.toBytes32(i_hasher.hash_2(Field.toField(_left), Field.toField(_right)));
     }
 
     /**
-     * @dev Insert a new leaf into the Merkle tree
+     * @notice Insert a new leaf into the Merkle tree
+     * @dev Updates the root and caches subtrees for efficient future insertions
      * @param _leaf The leaf value to insert
      * @return index The index of the inserted leaf
      */
@@ -85,69 +92,63 @@ contract Incremental {
         if (_nextLeafIndex == uint32(2) ** i_depth) {
             revert IncrementalMerkleTree__MerkleTreeFull(_nextLeafIndex);
         }
-        uint32 currentIndex = _nextLeafIndex; // the index of the current node starting with the leaf and working up
-        bytes32 currentHash = _leaf; // the actual value of the current node starting with the leaf and working up
-        bytes32 left; // the node that needs to be on the left side of the hash
-        bytes32 right; // the node that needs to be on the right side of the hash
+        uint32 currentIndex = _nextLeafIndex;
+        bytes32 currentHash = _leaf;
+        bytes32 left;
+        bytes32 right;
 
         for (uint32 i = 0; i < i_depth; i++) {
-            // check if the index is even
+            // If index is even, current node is left child, right child is zero subtree
             if (currentIndex % 2 == 0) {
-                // if even, the current node is the left child and the right child is a zero subtree of depth = the current depth we are at i
                 left = currentHash;
                 right = zeros(i);
-                // cache the calculated hash as a sebtree root
+                // aderyn-ignore-next-line(costly-loop)
+                // Cache the calculated hash as a subtree root
                 s_cachedSubtrees[i] = currentHash;
             } else {
-                // if odd, the current node is the right child and the left child is a cached subtree of depth = the current depth we are at i
+                // If odd, current node is right child, left child is cached subtree
                 left = s_cachedSubtrees[i];
                 right = currentHash;
             }
-            // calculate the hash of the left and right nodes
+            // Calculate the hash of the left and right nodes
             currentHash = hashLeftRight(left, right);
-            // go up a level by halving the index (this is easier to see if you visualize the tree)
+            // Go up a level by halving the index
             currentIndex /= 2;
         }
 
-        // at this point we have calculated the root of the tree, so we can store it in the roots array
-        // calculate the next index in the array
+        // Store the new root in the roots array
         uint32 newRootIndex = (s_currentRootIndex + 1) % ROOT_HISTORY_SIZE;
-        // store the index of the new root we are adding
         s_currentRootIndex = newRootIndex;
-        // store the new root in the roots array
         s_roots[newRootIndex] = currentHash;
-        // store the index of the next leaf to be inserted ready for the next deposit
         s_nextLeafIndex = _nextLeafIndex + 1;
-        // return the index of the leaf we just inserted to be passed to the deposit event
         return _nextLeafIndex;
     }
 
     /**
-     * @dev Check whether the root is present in the root history
+     * @notice Check whether the root is present in the root history
      * @param _root The root to check
      * @return True if the root is known, false otherwise
      */
     function isKnownRoot(bytes32 _root) public view returns (bool) {
-        // check if they are trying to bypass the check by passing a zero root which is the defualt value
         if (_root == bytes32(0)) {
             return false;
         }
-        uint32 _currentRootIndex = s_currentRootIndex; // cash the result so we don't have to read it multiple times
-        uint32 i = _currentRootIndex; // show the diagram:)
+        uint32 _currentRootIndex = s_currentRootIndex;
+        uint32 i = _currentRootIndex;
         do {
             if (_root == s_roots[i]) {
-                return true; // the root is present in the history
+                return true;
             }
             if (i == 0) {
-                i = ROOT_HISTORY_SIZE; // we have got to the end of the array and need to wrap around
+                i = ROOT_HISTORY_SIZE;
             }
             i--;
-        } while (i != _currentRootIndex); // once we get back to the current root index, we are done
-        return false; // the root is not present in the history
+        } while (i != _currentRootIndex);
+        return false;
     }
 
     /**
-     * @dev Returns the latest root of the Merkle tree
+     * @notice Returns the latest root of the Merkle tree
      * @return The current root value
      */
     function getLatestRoot() public view returns (bytes32) {

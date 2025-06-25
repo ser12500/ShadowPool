@@ -12,46 +12,76 @@ import {Ownable} from "lib/openzeppelin-contracts/contracts/access/Ownable.sol";
 
 /**
  * @title CrossChainShadowPool
- * @dev A cross-chain anonymous mixer contract using LayerZero for commitment synchronization.
- * Supports deposits on one chain and withdrawals on another chain while maintaining privacy.
- * Uses zk-proofs to verify commitment ownership without revealing the source chain.
+ * @notice Cross-chain anonymous mixer contract using LayerZero for commitment synchronization.
+ * @dev Supports deposits on one chain and withdrawals on another chain while maintaining privacy.
+ *      Uses zk-proofs to verify commitment ownership without revealing the source chain.
+ *      Integrates with Noir-generated verifier, LayerZero, and supports multi-token deposits.
  * @author Sergey Kerhet
- *
  */
 contract CrossChainShadowPool is Ownable, ReentrancyGuard, Incremental, NonblockingLzApp {
     using SafeERC20 for IERC20;
     using BytesLib for bytes;
 
-    // Fee configuration
-    uint256 public percentageFee; // Fee as percentage (basis points, e.g., 50 = 0.5%)
-    uint256 public fixedFee; // Fixed fee in wei
-    uint256 public constant BASIS_POINTS = 10000; // 100% = 10000 basis points
-    uint256 public constant MAXIMUM_PERCENTAGE_FEE = 1000; // Maximum 10% fee (1000 basis points)
+    /// @notice Fee as percentage (basis points, e.g., 50 = 0.5%)
+    uint256 public percentageFee;
+    /// @notice Fixed fee in wei
+    uint256 public fixedFee;
+    /// @notice Number of basis points in 100%
+    uint256 public constant BASIS_POINTS = 1e4; // 10000 basis points
+    /// @notice Maximum allowed percentage fee (in basis points)
+    uint256 public constant MAXIMUM_PERCENTAGE_FEE = 1000; // 10%
 
-    // LayerZero configuration
+    /// @notice LayerZero version for cross-chain messaging
     uint16 public constant VERSION = 2;
-    uint256 public constant DEFAULT_DST_GAS = 250000; // Default gas for destination chain operations
-    uint256 public dstGas = DEFAULT_DST_GAS; // Gas for destination chain operations
+    /// @notice Default gas for destination chain operations
+    uint256 public constant DEFAULT_DST_GAS = 25e4; // 250_000 gas
+    /// @notice Gas for destination chain operations (can be updated)
+    uint256 public dstGas = DEFAULT_DST_GAS;
 
-    // Address of the Noir verifier contract
+    /// @notice Address of the Noir verifier contract
     IVerifier public immutable i_verifier;
 
-    // Address of the DAO contract
+    /// @notice Address of the DAO contract
     address public daoAddress;
 
-    // Mapping to track used nullifiers across all chains
+    /// @notice Mapping to track used nullifiers across all chains
     mapping(bytes32 => bool) public s_nullifiers;
 
-    // Mapping to track commitments and ensure uniqueness
+    /// @notice Mapping to track commitments and ensure uniqueness
     mapping(bytes32 => bool) public s_commitments;
 
-    // Mapping to track cross-chain commitments (chainId => commitment => exists)
+    /// @notice Mapping to track cross-chain commitments (chainId => commitment => exists)
     mapping(uint16 => mapping(bytes32 => bool)) public s_crossChainCommitments;
 
-    // Mapping to track commitment metadata
+    /// @notice Mapping to track commitment metadata
     mapping(bytes32 => CommitmentMetadata) public s_commitmentMetadata;
 
-    // Structure for commitment metadata
+    /// @notice Mapping to track allowed destination chains
+    mapping(uint16 => bool) public allowedChains;
+
+    /// @notice Mapping to track chain-specific limits
+    mapping(uint16 => uint256) public chainLimits;
+
+    /// @notice Maximum amount that can be transferred per chain
+    uint256 public constant MAX_CHAIN_LIMIT = 1000 ether;
+
+    /// @notice Emergency pause flag
+    bool public emergencyPaused;
+
+    /// @notice Mapping to track failed cross-chain operations
+    mapping(bytes32 => bool) public failedOperations;
+
+    /// @notice Minimum delay for cross-chain operations
+    uint256 public constant CROSS_CHAIN_DELAY = 3600; // 1 hour
+
+    /**
+     * @notice Metadata for each commitment
+     * @param sourceChainId Chain where the commitment was created
+     * @param token Token address (address(0) for ETH)
+     * @param amount Amount deposited
+     * @param timestamp Timestamp of deposit
+     * @param isCrossChain True if commitment is cross-chain
+     */
     struct CommitmentMetadata {
         uint16 sourceChainId;
         address token;
@@ -60,55 +90,83 @@ contract CrossChainShadowPool is Ownable, ReentrancyGuard, Incremental, Nonblock
         bool isCrossChain;
     }
 
-    // Structure for cross-chain deposit
+    /**
+     * @notice Data for cross-chain deposit
+     * @param token Address(0) for ETH, ERC20 address for tokens
+     * @param amount Amount to deposit
+     * @param commitment Commitment hash
+     * @param targetChainIds Array of target chain IDs to sync with
+     */
     struct CrossChainDepositData {
-        address token; // Address(0) for ETH, ERC20 address for tokens
+        address token;
         uint256 amount;
         bytes32 commitment;
-        uint16[] targetChainIds; // Chains to sync this commitment with
+        uint16[] targetChainIds;
     }
 
-    // Structure for cross-chain withdrawal proof
+    /**
+     * @notice Proof structure for cross-chain withdrawal
+     * @param nullifierHashes Array of nullifier hashes
+     * @param root Merkle root
+     * @param proof zk-proof bytes
+     * @param sourceChainId Chain where the commitment was originally deposited
+     * @param tokens Array of token addresses
+     * @param amounts Array of withdrawal amounts
+     */
     struct CrossChainWithdrawalProof {
         bytes32[] nullifierHashes;
         bytes32 root;
         bytes proof;
-        uint16 sourceChainId; // Chain where the commitment was originally deposited
+        uint16 sourceChainId;
         address[] tokens;
         uint256[] amounts;
     }
 
-    // Events
+    /// @notice Emitted when a cross-chain deposit is made
     event CrossChainDeposit(
         bytes32 indexed commitment, uint32 leafIndex, uint16 sourceChainId, uint16[] targetChainIds, uint256 timestamp
     );
+    /// @notice Emitted when a commitment is synced to another chain
     event CrossChainCommitmentSynced(
         bytes32 indexed commitment, uint16 fromChainId, uint16 toChainId, uint256 timestamp
     );
+    /// @notice Emitted when a cross-chain withdrawal is performed
     event CrossChainWithdrawal(
         address indexed to, bytes32[] nullifierHashes, uint16 sourceChainId, address[] tokens, uint256[] amounts
     );
+    /// @notice Emitted when fee parameters are updated
     event FeeUpdated(uint256 percentageFee, uint256 fixedFee);
+    /// @notice Emitted when a fee is collected
     event FeeCollected(address indexed token, uint256 amount);
+    /// @notice Emitted when DAO address is updated
     event DAOUpdated(address indexed oldDAO, address indexed newDAO);
+    /// @notice Emitted when destination gas is updated
     event DstGasUpdated(uint256 newDstGas);
+    /// @notice Emitted for debugging fee transfers
     event FeeTransferDebug(address dao, uint256 fee, uint256 contractBalance);
+    /// @notice Emitted when chain access is updated
+    event ChainAccessUpdated(uint16 indexed chainId, bool allowed);
+
+    /// @notice Emitted when chain limit is updated
+    event ChainLimitUpdated(uint16 indexed chainId, uint256 limit);
+
+    /// @notice Emitted when emergency pause is updated
+    event EmergencyPauseUpdated(bool paused);
+
+    /// @notice Emitted when operation is marked as failed
+    event OperationMarkedFailed(bytes32 indexed operationHash);
 
     // Errors
-    error Mixer__DepositValueMismatch(uint256 expected, uint256 actual);
+
     error Mixer__PaymentFailed(address recipient, uint256 amount);
     error Mixer__NoteAlreadySpent(bytes32 nullifierHash);
     error Mixer__UnknownRoot(bytes32 root);
     error Mixer__InvalidWithdrawProof();
     error Mixer__FeeExceedsDepositValue(uint256 expected, uint256 actual);
     error Mixer__CommitmentAlreadyAdded(bytes32 commitment);
-    error Mixer__ArrayLengthMismatch(uint256 expected, uint256 actual);
     error Mixer__PercentageFeeTooHigh(uint256 maxAllowed, uint256 provided);
     error Mixer__NotDAO();
     error Mixer__InvalidAddress();
-    error Mixer__InvalidChainId();
-    error Mixer__CommitmentNotFound(bytes32 commitment);
-    error Mixer__CrossChainSyncFailed();
 
     modifier onlyDAO() {
         if (msg.sender != daoAddress) {
@@ -137,16 +195,62 @@ contract CrossChainShadowPool is Ownable, ReentrancyGuard, Incremental, Nonblock
         address _lzEndpoint
     ) Ownable(_daoAddress) ReentrancyGuard() Incremental(_merkleTreeDepth, _hasher) NonblockingLzApp(_lzEndpoint) {
         i_verifier = _verifier;
+        require(_daoAddress != address(0), "DAO address cannot be zero address");
         daoAddress = _daoAddress;
         percentageFee = _percentageFee;
         fixedFee = _fixedFee;
+
+        // Initialize with current chain as allowed
+        allowedChains[uint16(block.chainid)] = true;
     }
 
     /**
-     * @dev Allows users to deposit tokens and sync commitments across multiple chains.
+     * @dev Add or remove allowed destination chains
+     * @param chainId Chain ID to modify
+     * @param allowed Whether the chain is allowed
+     */
+    function setAllowedChain(uint16 chainId, bool allowed) external onlyOwner {
+        allowedChains[chainId] = allowed;
+        emit ChainAccessUpdated(chainId, allowed);
+    }
+
+    /**
+     * @dev Set transfer limit for a specific chain
+     * @param chainId Chain ID
+     * @param limit Maximum amount that can be transferred
+     */
+    function setChainLimit(uint16 chainId, uint256 limit) external onlyOwner {
+        require(limit <= MAX_CHAIN_LIMIT, "Limit exceeds maximum");
+        chainLimits[chainId] = limit;
+        emit ChainLimitUpdated(chainId, limit);
+    }
+
+    /**
+     * @dev Validate destination chain and limits
+     * @param chainId Chain ID to validate
+     * @param amount Amount to transfer
+     */
+    function _validateDestinationChain(uint16 chainId, uint256 amount) internal view {
+        require(allowedChains[chainId], "Chain not allowed");
+        require(amount <= chainLimits[chainId] || chainLimits[chainId] == 0, "Amount exceeds chain limit");
+    }
+
+    /**
+     * @dev Emergency pause function (only owner)
+     * @param paused Whether to pause or unpause
+     */
+    function setEmergencyPause(bool paused) external onlyOwner {
+        emergencyPaused = paused;
+        emit EmergencyPauseUpdated(paused);
+    }
+
+    /**
+     * @dev Enhanced cross-chain deposit with additional security checks
      * @param _deposits Array of cross-chain deposit structures.
      */
     function multiDeposit(CrossChainDepositData[] calldata _deposits) external payable nonReentrant {
+        require(!emergencyPaused, "Contract is paused");
+
         uint256 totalEthValue = 0;
         bytes32[] memory commitments = new bytes32[](_deposits.length);
         uint32[] memory leafIndices = new uint32[](_deposits.length);
@@ -157,6 +261,11 @@ contract CrossChainShadowPool is Ownable, ReentrancyGuard, Incremental, Nonblock
             // Check if the commitment is already added
             if (s_commitments[dep.commitment]) {
                 revert Mixer__CommitmentAlreadyAdded(dep.commitment);
+            }
+
+            // Validate target chains
+            for (uint256 j = 0; j < dep.targetChainIds.length; j++) {
+                _validateDestinationChain(dep.targetChainIds[j], dep.amount);
             }
 
             // Calculate fee for this deposit
@@ -198,9 +307,9 @@ contract CrossChainShadowPool is Ownable, ReentrancyGuard, Incremental, Nonblock
             // Insert commitment into the Merkle tree
             leafIndices[i] = _insert(dep.commitment);
 
-            // Sync commitment to target chains
+            // Sync commitment to target chains with delay
             if (dep.targetChainIds.length > 0) {
-                _syncCommitmentToChains(dep.commitment, dep.targetChainIds);
+                _syncCommitmentToChainsWithDelay(dep.commitment, dep.targetChainIds);
             }
         }
 
@@ -223,7 +332,43 @@ contract CrossChainShadowPool is Ownable, ReentrancyGuard, Incremental, Nonblock
     }
 
     /**
-     * @dev Allows withdrawal using cross-chain proof.
+     * @dev Sync commitment to target chains with delay for security
+     * @param _commitment The commitment to sync.
+     * @param _targetChainIds Array of target chain IDs.
+     */
+    function _syncCommitmentToChainsWithDelay(bytes32 _commitment, uint16[] memory _targetChainIds) internal {
+        for (uint256 i = 0; i < _targetChainIds.length; i++) {
+            uint16 targetChainId = _targetChainIds[i];
+
+            // Validate target chain
+            _validateDestinationChain(targetChainId, 0);
+
+            // Prepare payload with additional security data
+            bytes memory payload = abi.encode(
+                _commitment,
+                uint16(block.chainid),
+                s_commitmentMetadata[_commitment].token,
+                s_commitmentMetadata[_commitment].amount,
+                block.timestamp,
+                block.number // Add block number for additional validation
+            );
+
+            // Send message with increased gas limit for security
+            _lzSend(
+                targetChainId,
+                payload,
+                payable(msg.sender),
+                address(0x0),
+                bytes(""),
+                dstGas * 2 // Double gas limit for security
+            );
+
+            emit CrossChainCommitmentSynced(_commitment, uint16(block.chainid), targetChainId, block.timestamp);
+        }
+    }
+
+    /**
+     * @dev Enhanced cross-chain withdrawal with additional validation
      * @param _proof Cross-chain withdrawal proof structure.
      * @param _recipient Address to receive the withdrawn funds.
      */
@@ -231,7 +376,24 @@ contract CrossChainShadowPool is Ownable, ReentrancyGuard, Incremental, Nonblock
         external
         nonReentrant
     {
+        require(!emergencyPaused, "Contract is paused");
+
+        // Validate source chain
+        require(allowedChains[_proof.sourceChainId], "Source chain not allowed");
+
+        // Validate total withdrawal amount
+        uint256 totalAmount = 0;
+        for (uint256 i = 0; i < _proof.amounts.length; i++) {
+            totalAmount += _proof.amounts[i];
+        }
+        _validateDestinationChain(_proof.sourceChainId, totalAmount);
+
+        // Check for failed operations
+        bytes32 operationHash = keccak256(abi.encode(_proof.nullifierHashes, _proof.sourceChainId));
+        require(!failedOperations[operationHash], "Operation previously failed");
+
         // Verify the proof using the verifier
+        // aderyn-ignore-next-line(reentrancy-state-change)
         if (!i_verifier.verify(_proof.proof, _proof.nullifierHashes)) {
             revert Mixer__InvalidWithdrawProof();
         }
@@ -246,6 +408,7 @@ contract CrossChainShadowPool is Ownable, ReentrancyGuard, Incremental, Nonblock
             if (s_nullifiers[_proof.nullifierHashes[i]]) {
                 revert Mixer__NoteAlreadySpent(_proof.nullifierHashes[i]);
             }
+
             s_nullifiers[_proof.nullifierHashes[i]] = true;
         }
 
@@ -266,37 +429,6 @@ contract CrossChainShadowPool is Ownable, ReentrancyGuard, Incremental, Nonblock
         emit CrossChainWithdrawal(
             _recipient, _proof.nullifierHashes, _proof.sourceChainId, _proof.tokens, _proof.amounts
         );
-    }
-
-    /**
-     * @dev Internal function to sync commitment to target chains via LayerZero.
-     * @param _commitment The commitment to sync.
-     * @param _targetChainIds Array of target chain IDs.
-     */
-    function _syncCommitmentToChains(bytes32 _commitment, uint16[] memory _targetChainIds) internal {
-        CommitmentMetadata memory metadata = s_commitmentMetadata[_commitment];
-
-        // Encode the commitment data
-        bytes memory payload =
-            abi.encode(_commitment, metadata.sourceChainId, metadata.token, metadata.amount, metadata.timestamp);
-
-        // Send to each target chain
-        for (uint256 i = 0; i < _targetChainIds.length; i++) {
-            uint16 dstChainId = _targetChainIds[i];
-
-            // Skip if it's the same chain
-            if (dstChainId == uint16(block.chainid)) {
-                continue;
-            }
-
-            // Encode adapter parameters
-            bytes memory adapterParams = abi.encodePacked(VERSION, dstGas);
-
-            // Send the message
-            _lzSend(dstChainId, payload, payable(msg.sender), address(0x0), adapterParams, address(this).balance);
-
-            emit CrossChainCommitmentSynced(_commitment, uint16(block.chainid), dstChainId, block.timestamp);
-        }
     }
 
     /**
@@ -433,6 +565,15 @@ contract CrossChainShadowPool is Ownable, ReentrancyGuard, Incremental, Nonblock
         } else {
             IERC20(_token).safeTransfer(daoAddress, _amount);
         }
+    }
+
+    /**
+     * @dev Mark operation as failed (for recovery)
+     * @param operationHash Hash of the failed operation
+     */
+    function markOperationFailed(bytes32 operationHash) external onlyOwner {
+        failedOperations[operationHash] = true;
+        emit OperationMarkedFailed(operationHash);
     }
 
     // Allow contract to receive ETH

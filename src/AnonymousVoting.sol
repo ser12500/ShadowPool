@@ -10,42 +10,45 @@ import {IVerifier} from "./Verifier/VotingVerifier.sol";
 
 /**
  * @title AnonymousVoting
- * @dev Anonymous voting system for DAO using zk-proofs
- * Allows token holders to vote anonymously while proving they own tokens
+ * @notice Anonymous voting system for DAO using zk-proofs.
+ * @dev Allows token holders to vote anonymously while proving they own tokens. Integrates with Poseidon2, zk-verifier, and supports Merkle-based commitments.
  * @author Sergey Kerhet
- *
  */
 contract AnonymousVoting is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
-    uint256 public constant VOTING_PERIOD = 40_320; // ~1 week (12 second blocks)
-    uint256 public constant PERCENTAGE_MULTIPLIER = 100; // For percentage calculations
+    /// @notice Voting period in blocks (~1 week for 12s blocks)
+    uint256 public constant VOTING_PERIOD = 40_320;
+    /// @notice Multiplier for percentage calculations
+    uint256 public constant PERCENTAGE_MULTIPLIER = 100;
 
     /// @notice Voting verifier for zk-proofs
     IVerifier public immutable votingVerifier;
-
     /// @notice Poseidon2 hasher for commitments
     Poseidon2 public immutable poseidon;
-
     /// @notice Governance token
     IERC20 public immutable governanceToken;
-
     /// @notice Merkle tree depth for token commitments
     uint32 public immutable merkleTreeDepth;
-
     /// @notice Current merkle root of governance token commitments
     bytes32 public currentMerkleRoot;
 
-    /// @notice Used nullifier hashes to prevent double voting
+    /// @notice Mapping of used nullifier hashes to prevent double voting
     mapping(bytes32 => bool) public usedNullifiers;
-
-    /// @notice Proposal voting data
+    /// @notice Mapping of proposalId to voting data
     mapping(uint256 => ProposalVotes) public proposalVotes;
-
-    /// @notice Token commitment to merkle tree mapping
+    /// @notice Mapping of token commitment to existence in Merkle tree
     mapping(bytes32 => bool) public tokenCommitments;
 
-    /// @notice Struct for proposal voting data
+    /**
+     * @notice Struct for proposal voting data
+     * @param forVotes Number of votes for
+     * @param againstVotes Number of votes against
+     * @param totalVotes Total votes cast
+     * @param votingActive Whether voting is active
+     * @param startBlock Block when voting started
+     * @param endBlock Block when voting ends
+     */
     struct ProposalVotes {
         uint256 forVotes;
         uint256 againstVotes;
@@ -55,24 +58,33 @@ contract AnonymousVoting is ReentrancyGuard {
         uint256 endBlock;
     }
 
-    /// @notice Events
+    /// @notice Event when a token commitment is added
     event TokenCommitmentAdded(bytes32 indexed commitment, uint256 tokenBalance);
+    /// @notice Emitted when an anonymous vote is cast
     event AnonymousVoteCast(uint256 indexed proposalId, bytes32 indexed nullifierHash, uint256 votes, bool support);
+    /// @notice Emitted when the Merkle root is updated
     event MerkleRootUpdated(bytes32 indexed oldRoot, bytes32 indexed newRoot);
 
-    /// @notice Errors
+    /// @notice Error: invalid zk-proof
     error AnonymousVoting__InvalidProof();
+    /// @notice Error: nullifier already used
     error AnonymousVoting__NullifierAlreadyUsed();
+    /// @notice Error: proposal not active
     error AnonymousVoting__ProposalNotActive();
+    /// @notice Error: invalid vote value
     error AnonymousVoting__InvalidVoteValue();
+    /// @notice Error: commitment already exists
     error AnonymousVoting__CommitmentAlreadyExists();
+    /// @notice Error: invalid Merkle proof
     error AnonymousVoting__InvalidMerkleProof();
 
-    /// @notice Constructor
-    /// @param _votingVerifier Address of the voting verifier
-    /// @param _poseidon Address of Poseidon2 hasher
-    /// @param _governanceToken Address of governance token
-    /// @param _merkleTreeDepth Depth of merkle tree
+    /**
+     * @notice Constructor for anonymous voting contract
+     * @param _votingVerifier Address of the voting verifier
+     * @param _poseidon Address of Poseidon2 hasher
+     * @param _governanceToken Address of governance token
+     * @param _merkleTreeDepth Depth of Merkle tree
+     */
     constructor(IVerifier _votingVerifier, Poseidon2 _poseidon, IERC20 _governanceToken, uint32 _merkleTreeDepth) {
         votingVerifier = _votingVerifier;
         poseidon = _poseidon;
@@ -80,23 +92,26 @@ contract AnonymousVoting is ReentrancyGuard {
         merkleTreeDepth = _merkleTreeDepth;
     }
 
-    /// @notice Add token commitment to merkle tree
-    /// @param commitment Commitment hash of token balance
-    /// @param tokenBalance Token balance being committed
+    /**
+     * @notice Add token commitment to Merkle tree
+     * @param commitment Commitment hash of token balance
+     * @param tokenBalance Token balance being committed
+     */
     function addTokenCommitment(bytes32 commitment, uint256 tokenBalance) external {
         if (tokenCommitments[commitment]) {
             revert AnonymousVoting__CommitmentAlreadyExists();
         }
-
         tokenCommitments[commitment] = true;
         emit TokenCommitmentAdded(commitment, tokenBalance);
     }
 
-    /// @notice Cast anonymous vote using zk-proof
-    /// @param proposalId ID of the proposal to vote on
-    /// @param proof Zk-proof bytes
-    /// @param publicInputs Public inputs for verification
-    /// @param support True for support, false for against
+    /**
+     * @notice Cast anonymous vote using zk-proof
+     * @param proposalId ID of the proposal to vote on
+     * @param proof Zk-proof bytes
+     * @param publicInputs Public inputs for verification
+     * @param support True for support, false for against
+     */
     function castAnonymousVote(uint256 proposalId, bytes calldata proof, bytes32[] calldata publicInputs, bool support)
         external
         nonReentrant

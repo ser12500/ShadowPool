@@ -10,6 +10,7 @@ import {Field} from "lib/poseidon2-evm/src/Field.sol";
 import {MockERC20} from "./mock/MockERC20.sol";
 import {ShadowPoolDAO} from "../src/ShadowPoolDAO.sol";
 import {ShadowPoolGovernanceToken} from "../src/ShadowPoolGovernanceToken.sol";
+import {TimelockController} from "lib/openzeppelin-contracts/contracts/governance/TimelockController.sol";
 
 contract ShadowPoolTest is Test {
     IVerifier public verifier;
@@ -17,6 +18,7 @@ contract ShadowPoolTest is Test {
     Poseidon2 public poseidon;
     ShadowPoolDAO public dao;
     ShadowPoolGovernanceToken public governanceToken;
+    TimelockController public timelockController;
 
     address public recipient = makeAddr("recipient");
 
@@ -53,36 +55,37 @@ contract ShadowPoolTest is Test {
         poseidon = new Poseidon2();
         verifier = new HonkVerifier();
         owner = makeAddr("owner");
-
-        // 1. Governance token
         governanceToken = new ShadowPoolGovernanceToken(owner, INITIAL_TOKEN_SUPPLY);
 
-        // 2. Create temporary address for ShadowPool
-        address tempShadowPoolAddress = address(0x123);
-
-        // 3. DAO with temporary ShadowPool address
-        dao = new ShadowPoolDAO(
-            governanceToken,
-            tempShadowPoolAddress,
-            PROPOSAL_THRESHOLD,
-            VOTING_PERIOD,
-            QUORUM_VOTES,
-            TIMELOCK_DELAY,
-            MAX_ACTIVE_PROPOSALS
-        );
-
-        // 4. ShadowPool with correct DAO address
         shadowPool = new ShadowPool(
             IVerifier(verifier),
             poseidon,
             uint32(MERKLE_TREE_DEPTH),
-            address(dao),
+            address(this),
             INITIAL_PERCENTAGE_FEE,
             INITIAL_FIXED_FEE
         );
 
-        // Note: In tests, DAO uses temporary ShadowPool address
-        // In production, address will be updated through DAO voting procedure
+        // Deploy TimelockController
+        address[] memory proposers = new address[](1);
+        proposers[0] = address(this);
+        address[] memory executors = new address[](1);
+        executors[0] = address(0); // anyone can execute
+        timelockController = new TimelockController(TIMELOCK_DELAY, proposers, executors, address(this));
+
+        // Deploy DAO
+        dao = new ShadowPoolDAO(
+            governanceToken,
+            address(shadowPool),
+            PROPOSAL_THRESHOLD,
+            VOTING_PERIOD,
+            QUORUM_VOTES,
+            TIMELOCK_DELAY,
+            MAX_ACTIVE_PROPOSALS,
+            timelockController
+        );
+        // Update DAO address in ShadowPool
+        shadowPool.updateDAOAddress(address(dao));
 
         user1 = makeAddr("user1");
         user2 = makeAddr("user2");
