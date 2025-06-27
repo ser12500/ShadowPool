@@ -1,0 +1,71 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+
+jobs:
+  build-and-test:
+    name: Build & Test (Foundry)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: latest
+
+      - name: Cache Foundry dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.foundry/cache
+            lib
+          key: ${{ runner.os }}-foundry-${{ hashFiles('**/foundry.toml') }}
+
+      - name: Install dependencies
+        run: forge install
+
+      - name: Build contracts
+        run: forge build
+
+      - name: Run tests
+        run: forge test --json > test-results.json
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v3
+        with:
+          name: forge-test-results
+          path: test-results.json
+
+  # Uncomment and configure the following job for automatic deployment to testnet
+  # deploy:
+  #   name: Deploy to Testnet
+  #   needs: build-and-test
+  #   runs-on: ubuntu-latest
+  #   if: github.ref == 'refs/heads/main'
+  #   steps:
+  #     - name: Checkout repository
+  #       uses: actions/checkout@v3
+  #     - name: Set up Foundry
+  #       uses: foundry-rs/foundry-toolchain@v1
+  #       with:
+  #         version: latest
+  #     - name: Install dependencies
+  #       run: forge install
+  #     - name: Build contracts
+  #       run: forge build
+  #     - name: Deploy contracts to Goerli
+  #       env:
+  #         PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
+  #         RPC_URL: ${{ secrets.GOERLI_RPC_URL }}
+  #       run: |
+  #         forge script script/DeployDAO.s.sol --rpc-url $RPC_URL --broadcast
+  #         forge script script/DeployCrossChain.s.sol --rpc-url $RPC_URL --broadcast
+
+# This workflow ensures all Solidity contracts are built and tested on every push and PR.
+# Deployment to testnet can be enabled by configuring secrets and uncommenting the deploy job. 

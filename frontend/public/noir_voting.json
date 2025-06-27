@@ -1,0 +1,116 @@
+{
+    "noir_version": "1.0.0-beta.6+e796dfd67726cbc28eb9991782533b211025928d",
+    "hash": "13248239354171880575",
+    "abi": {
+        "parameters": [
+            {
+                "name": "proposal_id",
+                "type": {
+                    "kind": "field"
+                },
+                "visibility": "public"
+            },
+            {
+                "name": "merkle_root",
+                "type": {
+                    "kind": "field"
+                },
+                "visibility": "public"
+            },
+            {
+                "name": "nullifier_hash",
+                "type": {
+                    "kind": "field"
+                },
+                "visibility": "public"
+            },
+            {
+                "name": "vote_result",
+                "type": {
+                    "kind": "field"
+                },
+                "visibility": "public"
+            },
+            {
+                "name": "total_votes",
+                "type": {
+                    "kind": "field"
+                },
+                "visibility": "public"
+            },
+            {
+                "name": "nullifier",
+                "type": {
+                    "kind": "field"
+                },
+                "visibility": "private"
+            },
+            {
+                "name": "secret",
+                "type": {
+                    "kind": "field"
+                },
+                "visibility": "private"
+            },
+            {
+                "name": "token_balance",
+                "type": {
+                    "kind": "field"
+                },
+                "visibility": "private"
+            },
+            {
+                "name": "merkle_path",
+                "type": {
+                    "kind": "array",
+                    "length": 20,
+                    "type": {
+                        "kind": "field"
+                    }
+                },
+                "visibility": "private"
+            },
+            {
+                "name": "is_right",
+                "type": {
+                    "kind": "array",
+                    "length": 20,
+                    "type": {
+                        "kind": "boolean"
+                    }
+                },
+                "visibility": "private"
+            },
+            {
+                "name": "proposal_start_block",
+                "type": {
+                    "kind": "field"
+                },
+                "visibility": "private"
+            },
+            {
+                "name": "proposal_end_block",
+                "type": {
+                    "kind": "field"
+                },
+                "visibility": "private"
+            },
+            {
+                "name": "current_block",
+                "type": {
+                    "kind": "field"
+                },
+                "visibility": "private"
+            }
+        ],
+        "return_type": null,
+        "error_types": {}
+    },
+    "bytecode": "H4sIAAAAAAAA/3WSWQ6CQBBEBwX3fd8QERERweX+h7PIVAIfRScvTd4XXTWOsfMDK347oM194q47X7izcIFwF+FC4a7CRcLdhIuFuwuXCPcQLhXuKVwm3Eu4XLhCuHfNueym4PZAB3RBD/TBAAzBCIzBBEzBDMzBAiyN7XkNNmALdmAPDuBobOc+Ow3YWchOImYeM9OEmaXMJOPNOf+1vOEDvsa+Mc9UU97V4r2uaZ4/swtCkKQCAAA=",
+    "debug_symbols": "dZHRCoMgFIbfxesuUmurXmWMMDuFICqmwYjefRbZauDV8Zzf71N0QT10fmyFGvSEmteCOiukFGMrNWdOaBWmy5qh2LbOAoQRuuSBMsyCcqhRXsoMzUz6fdNkmNqrYzakeYZA9aEG4SAkbKs1+9F5Gi1qesBlWZ14eedxmqfPeHhBi5Mnd56keUJxvACh5JEy0LQB4+pxGDDJ65vhHTrGhf1/9ZlZwToJRzt4xS+p+5iYxF8zVnPovYXNtGfB/QU=",
+    "file_map": {},
+    "names": [
+        "main"
+    ],
+    "brillig_names": []
+}
