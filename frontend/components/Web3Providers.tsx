@@ -14,24 +14,32 @@ export default function Web3Providers({ children }: { children: ReactNode }) {
             queries: {
                 retry: (failureCount, error: any) => {
                     // Не повторяем попытки для ошибок сети
-                    if (error?.message?.includes('CORS') || error?.message?.includes('network')) {
-                        return false;
-                    }
-                    return failureCount < 3;
-                },
-                retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 10000),
-                staleTime: 5 * 60 * 1000, // 5 минут
-                gcTime: 10 * 60 * 1000, // 10 минут
-            },
-            mutations: {
-                retry: (failureCount, error: any) => {
-                    // Не повторяем попытки для ошибок сети
-                    if (error?.message?.includes('CORS') || error?.message?.includes('network')) {
+                    if (error?.message?.includes('CORS') ||
+                        error?.message?.includes('network') ||
+                        error?.message?.includes('SOCKET_NOT_CONNECTED') ||
+                        error?.message?.includes('Failed to fetch')) {
                         return false;
                     }
                     return failureCount < 2;
                 },
                 retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 5000),
+                staleTime: 5 * 60 * 1000, // 5 минут
+                gcTime: 10 * 60 * 1000, // 10 минут
+                refetchOnWindowFocus: false,
+                refetchOnReconnect: false,
+            },
+            mutations: {
+                retry: (failureCount, error: any) => {
+                    // Не повторяем попытки для ошибок сети
+                    if (error?.message?.includes('CORS') ||
+                        error?.message?.includes('network') ||
+                        error?.message?.includes('SOCKET_NOT_CONNECTED') ||
+                        error?.message?.includes('Failed to fetch')) {
+                        return false;
+                    }
+                    return failureCount < 1;
+                },
+                retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 3000),
             },
         },
     }));

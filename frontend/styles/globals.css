@@ -1,0 +1,484 @@
+:root {
+    --background: #0a0a0a;
+    --foreground: #00ff41;
+    --card: #1a1a1a;
+    --card-foreground: #00ff41;
+    --popover: #1a1a1a;
+    --popover-foreground: #00ff41;
+    --primary: #ff0040;
+    --primary-foreground: #ffffff;
+    --secondary: #1a1a1a;
+    --secondary-foreground: #00ff41;
+    --muted: #1a1a1a;
+    --muted-foreground: #666666;
+    --accent: #ff0040;
+    --accent-foreground: #ffffff;
+    --destructive: #ff0040;
+    --destructive-foreground: #ffffff;
+    --border: #333333;
+    --input: #1a1a1a;
+    --ring: #ff0040;
+    --radius: 0.5rem;
+
+    /* Danger theme colors */
+    --danger-red: #ff0040;
+    --danger-orange: #ff6600;
+    --danger-yellow: #ffff00;
+    --matrix-green: #00ff41;
+    --dark-gray: #1a1a1a;
+    --darker-gray: #0a0a0a;
+    --glitch-red: #ff0000;
+    --glitch-blue: #00ffff;
+}
+
+* {
+    box-sizing: border-box;
+    padding: 0;
+    margin: 0;
+}
+
+html,
+body {
+    max-width: 100vw;
+    overflow-x: hidden;
+    background: var(--background);
+    color: var(--foreground);
+    font-family: 'Courier New', monospace;
+    position: relative;
+}
+
+/* Matrix rain effect */
+.matrix-rain {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: -1;
+    opacity: 0.1;
+}
+
+.matrix-rain::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent 0%, var(--matrix-green) 50%, transparent 100%);
+    animation: matrix-scan 3s linear infinite;
+}
+
+@keyframes matrix-scan {
+    0% {
+        transform: translateX(-100%);
+    }
+
+    100% {
+        transform: translateX(100%);
+    }
+}
+
+/* Glitch effects */
+.glitch {
+    position: relative;
+    animation: glitch 0.3s infinite;
+}
+
+.glitch::before,
+.glitch::after {
+    content: attr(data-text);
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+}
+
+.glitch::before {
+    animation: glitch-1 0.3s infinite;
+    color: var(--glitch-red);
+    z-index: -1;
+}
+
+.glitch::after {
+    animation: glitch-2 0.3s infinite;
+    color: var(--glitch-blue);
+    z-index: -2;
+}
+
+@keyframes glitch {
+    0% {
+        transform: translate(0);
+    }
+
+    20% {
+        transform: translate(-2px, 2px);
+    }
+
+    40% {
+        transform: translate(-2px, -2px);
+    }
+
+    60% {
+        transform: translate(2px, 2px);
+    }
+
+    80% {
+        transform: translate(2px, -2px);
+    }
+
+    100% {
+        transform: translate(0);
+    }
+}
+
+@keyframes glitch-1 {
+    0% {
+        transform: translate(0);
+    }
+
+    20% {
+        transform: translate(-2px, 2px);
+    }
+
+    40% {
+        transform: translate(-2px, -2px);
+    }
+
+    60% {
+        transform: translate(2px, 2px);
+    }
+
+    80% {
+        transform: translate(2px, -2px);
+    }
+
+    100% {
+        transform: translate(0);
+    }
+}
+
+@keyframes glitch-2 {
+    0% {
+        transform: translate(0);
+    }
+
+    20% {
+        transform: translate(2px, -2px);
+    }
+
+    40% {
+        transform: translate(2px, 2px);
+    }
+
+    60% {
+        transform: translate(-2px, -2px);
+    }
+
+    80% {
+        transform: translate(-2px, 2px);
+    }
+
+    100% {
+        transform: translate(0);
+    }
+}
+
+/* Danger animations */
+.danger-pulse {
+    animation: danger-pulse 2s ease-in-out infinite;
+}
+
+@keyframes danger-pulse {
+
+    0%,
+    100% {
+        box-shadow: 0 0 5px var(--danger-red);
+    }
+
+    50% {
+        box-shadow: 0 0 20px var(--danger-red), 0 0 30px var(--danger-red);
+    }
+}
+
+.danger-border {
+    border: 2px solid var(--danger-red);
+    animation: danger-border 3s ease-in-out infinite;
+}
+
+@keyframes danger-border {
+
+    0%,
+    100% {
+        border-color: var(--danger-red);
+    }
+
+    50% {
+        border-color: var(--danger-orange);
+    }
+}
+
+/* Terminal style */
+.terminal {
+    background: var(--darker-gray);
+    border: 1px solid var(--matrix-green);
+    color: var(--matrix-green);
+    font-family: 'Courier New', monospace;
+    padding: 1rem;
+    position: relative;
+}
+
+.terminal::before {
+    content: '> ';
+    color: var(--danger-red);
+    font-weight: bold;
+}
+
+/* Error effects */
+.error-shake {
+    animation: error-shake 0.5s ease-in-out;
+}
+
+@keyframes error-shake {
+
+    0%,
+    100% {
+        transform: translateX(0);
+    }
+
+    25% {
+        transform: translateX(-5px);
+    }
+
+    75% {
+        transform: translateX(5px);
+    }
+}
+
+/* Neon effects */
+.neon-text {
+    text-shadow:
+        0 0 5px currentColor,
+        0 0 10px currentColor,
+        0 0 15px currentColor,
+        0 0 20px currentColor;
+}
+
+.neon-border {
+    box-shadow:
+        0 0 5px currentColor,
+        0 0 10px currentColor,
+        0 0 15px currentColor,
+        inset 0 0 5px currentColor;
+}
+
+/* Danger button */
+.btn-danger {
+    background: linear-gradient(45deg, var(--danger-red), var(--danger-orange));
+    border: none;
+    color: white;
+    padding: 0.75rem 1.5rem;
+    font-family: 'Courier New', monospace;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    position: relative;
+    overflow: hidden;
+    transition: all 0.3s ease;
+}
+
+.btn-danger::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+    transition: left 0.5s;
+}
+
+.btn-danger:hover::before {
+    left: 100%;
+}
+
+.btn-danger:hover {
+    transform: scale(1.05);
+    box-shadow: 0 0 20px var(--danger-red);
+}
+
+/* Warning overlay */
+.warning-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(255, 0, 0, 0.1);
+    pointer-events: none;
+    z-index: 1000;
+    animation: warning-flash 4s ease-in-out infinite;
+}
+
+@keyframes warning-flash {
+
+    0%,
+    100% {
+        opacity: 0;
+    }
+
+    50% {
+        opacity: 1;
+    }
+}
+
+/* Scary loading */
+.scary-loading {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border: 3px solid var(--danger-red);
+    border-radius: 50%;
+    border-top-color: transparent;
+    animation: scary-spin 1s linear infinite;
+}
+
+@keyframes scary-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Hacker terminal */
+.hacker-terminal {
+    background: var(--darker-gray);
+    border: 2px solid var(--matrix-green);
+    color: var(--matrix-green);
+    font-family: 'Courier New', monospace;
+    padding: 1rem;
+    position: relative;
+    overflow: hidden;
+}
+
+.hacker-terminal::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 2px;
+    background: var(--matrix-green);
+    animation: scan-line 2s linear infinite;
+}
+
+@keyframes scan-line {
+    0% {
+        transform: translateY(0);
+    }
+
+    100% {
+        transform: translateY(100vh);
+    }
+}
+
+/* Danger particles */
+.danger-particles {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: -1;
+}
+
+.particle {
+    position: absolute;
+    width: 2px;
+    height: 2px;
+    background: var(--danger-red);
+    border-radius: 50%;
+    animation: particle-fall 3s linear infinite;
+}
+
+@keyframes particle-fall {
+    0% {
+        transform: translateY(-100vh) rotate(0deg);
+        opacity: 1;
+    }
+
+    100% {
+        transform: translateY(100vh) rotate(360deg);
+        opacity: 0;
+    }
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+    .terminal {
+        font-size: 0.875rem;
+        padding: 0.75rem;
+    }
+
+    .btn-danger {
+        padding: 0.5rem 1rem;
+        font-size: 0.875rem;
+    }
+}
+
+/* Dark theme toggle */
+.theme-toggle {
+    position: fixed;
+    top: 1rem;
+    right: 1rem;
+    z-index: 1000;
+    background: var(--danger-red);
+    border: none;
+    color: white;
+    padding: 0.5rem;
+    border-radius: 50%;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.theme-toggle:hover {
+    transform: scale(1.1);
+    box-shadow: 0 0 15px var(--danger-red);
+}
+
+/* Navigation with danger theme */
+.nav-danger {
+    background: var(--darker-gray);
+    border-bottom: 2px solid var(--danger-red);
+    padding: 1rem 0;
+}
+
+.nav-danger .nav-link {
+    color: var(--matrix-green);
+    text-decoration: none;
+    margin: 0 1rem;
+    position: relative;
+    transition: all 0.3s ease;
+}
+
+.nav-danger .nav-link::after {
+    content: '';
+    position: absolute;
+    bottom: -5px;
+    left: 0;
+    width: 0;
+    height: 2px;
+    background: var(--danger-red);
+    transition: width 0.3s ease;
+}
+
+.nav-danger .nav-link:hover::after {
+    width: 100%;
+}
+
+.nav-danger .nav-link:hover {
+    color: var(--danger-red);
+    text-shadow: 0 0 10px var(--danger-red);
+}

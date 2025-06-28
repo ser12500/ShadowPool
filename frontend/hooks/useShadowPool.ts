@@ -1,170 +1,81 @@
 "use client";
-import { useContractRead, useWriteContract, useWaitForTransactionReceipt, useAccount } from "wagmi";
+import { useContractRead, useWriteContract, useWaitForTransactionReceipt, useAccount, useChainId, useSwitchChain } from "wagmi";
 import { parseEther, formatEther } from "viem";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
-// Полный ABI контракта ShadowPool
-const SHADOW_POOL_ABI = [
-    {
-        "type": "constructor",
-        "inputs": [
-            { "name": "_verifier", "type": "address", "internalType": "contract IVerifier" },
-            { "name": "_hasher", "type": "address", "internalType": "contract Poseidon2" },
-            { "name": "_merkleTreeDepth", "type": "uint32", "internalType": "uint32" },
-            { "name": "_daoAddress", "type": "address", "internalType": "address" },
-            { "name": "_percentageFee", "type": "uint256", "internalType": "uint256" },
-            { "name": "_fixedFee", "type": "uint256", "internalType": "uint256" }
-        ],
-        "stateMutability": "nonpayable"
-    },
-    {
-        "type": "function",
-        "name": "getPoolStats",
-        "inputs": [],
-        "outputs": [
-            { "name": "totalDeposits", "type": "uint256", "internalType": "uint256" },
-            { "name": "currentRoot", "type": "bytes32", "internalType": "bytes32" },
-            { "name": "currentPercentageFee", "type": "uint256", "internalType": "uint256" },
-            { "name": "currentFixedFee", "type": "uint256", "internalType": "uint256" }
-        ],
-        "stateMutability": "view"
-    },
-    {
-        "type": "function",
-        "name": "getAnonymityLevel",
-        "inputs": [],
-        "outputs": [{ "name": "", "type": "string", "internalType": "string" }],
-        "stateMutability": "view"
-    },
-    {
-        "type": "function",
-        "name": "calculateFee",
-        "inputs": [{ "name": "_amount", "type": "uint256", "internalType": "uint256" }],
-        "outputs": [{ "name": "", "type": "uint256", "internalType": "uint256" }],
-        "stateMutability": "view"
-    },
-    {
-        "type": "function",
-        "name": "getFeeBreakdown",
-        "inputs": [{ "name": "_amount", "type": "uint256", "internalType": "uint256" }],
-        "outputs": [
-            { "name": "percentageFeeAmount", "type": "uint256", "internalType": "uint256" },
-            { "name": "fixedFeeAmount", "type": "uint256", "internalType": "uint256" },
-            { "name": "totalFee", "type": "uint256", "internalType": "uint256" }
-        ],
-        "stateMutability": "view"
-    },
-    {
-        "type": "function",
-        "name": "deposit",
-        "inputs": [{ "name": "_commitment", "type": "bytes32", "internalType": "bytes32" }],
-        "outputs": [],
-        "stateMutability": "payable"
-    },
-    {
-        "type": "function",
-        "name": "multiDeposit",
-        "inputs": [{ "name": "_deposits", "type": "tuple[]", "internalType": "struct ShadowPool.Deposit[]", "components": [{ "name": "token", "type": "address", "internalType": "address" }, { "name": "amount", "type": "uint256", "internalType": "uint256" }, { "name": "commitment", "type": "bytes32", "internalType": "bytes32" }] }],
-        "outputs": [],
-        "stateMutability": "payable"
-    },
-    {
-        "type": "function",
-        "name": "withdraw",
-        "inputs": [
-            { "name": "_proof", "type": "bytes", "internalType": "bytes" },
-            { "name": "_root", "type": "bytes32", "internalType": "bytes32" },
-            { "name": "_nullifierHashes", "type": "bytes32[]", "internalType": "bytes32[]" },
-            { "name": "_recipient", "type": "address", "internalType": "address payable" },
-            { "name": "_tokens", "type": "address[]", "internalType": "address[]" },
-            { "name": "_amounts", "type": "uint256[]", "internalType": "uint256[]" }
-        ],
-        "outputs": [],
-        "stateMutability": "nonpayable"
-    },
-    {
-        "type": "function",
-        "name": "getPoolUtilization",
-        "inputs": [],
-        "outputs": [{ "name": "", "type": "uint256", "internalType": "uint256" }],
-        "stateMutability": "view"
-    },
-    {
-        "type": "function",
-        "name": "getOptimalWithdrawTime",
-        "inputs": [],
-        "outputs": [{ "name": "", "type": "uint256", "internalType": "uint256" }],
-        "stateMutability": "view"
-    },
-    {
-        "type": "function",
-        "name": "getMaxPoolSize",
-        "inputs": [],
-        "outputs": [{ "name": "", "type": "uint256", "internalType": "uint256" }],
-        "stateMutability": "view"
-    },
-    {
-        "type": "function",
-        "name": "isPoolFull",
-        "inputs": [],
-        "outputs": [{ "name": "", "type": "bool", "internalType": "bool" }],
-        "stateMutability": "view"
-    },
-    {
-        "type": "function",
-        "name": "percentageFee",
-        "inputs": [],
-        "outputs": [{ "name": "", "type": "uint256", "internalType": "uint256" }],
-        "stateMutability": "view"
-    },
-    {
-        "type": "function",
-        "name": "fixedFee",
-        "inputs": [],
-        "outputs": [{ "name": "", "type": "uint256", "internalType": "uint256" }],
-        "stateMutability": "view"
-    }
-] as const;
+// Импортируем полный ABI из сгенерированного файла
+import shadowPoolAbi from "../public/ShadowPool.json";
+const SHADOW_POOL_ABI = shadowPoolAbi.abi;
 
-// Реальный адрес контракта ShadowPool
-const SHADOW_POOL_ADDRESS = "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9" as `0x${string}`;
+// Импортируем адреса контрактов
+import { getContractAddresses } from "../lib/contracts";
+
+// Тип возвращаемых данных getPoolStats
+interface PoolStats {
+    totalDeposits: bigint;
+    currentRoot: string;
+    currentPercentageFee: bigint;
+    currentFixedFee: bigint;
+}
 
 export function useShadowPool() {
     const { address } = useAccount();
+    const chainId = useChainId();
+    const { switchChain } = useSwitchChain();
+    const [lastError, setLastError] = useState<string | null>(null);
 
-    // Получение статистики пула
-    const { data: poolStats, isLoading: isLoadingStats, error: poolStatsError } = useContractRead({
-        address: SHADOW_POOL_ADDRESS,
+    // Получаем адреса контрактов для текущей сети
+    const contractAddresses = getContractAddresses(chainId);
+    const SHADOW_POOL_ADDRESS = contractAddresses.SHADOW_POOL;
+
+    // Проверяем, поддерживается ли текущая сеть
+    const isSupportedNetwork = chainId === 31337 || chainId === 1 || chainId === 11155111 || chainId === 302; // Anvil, Mainnet, Sepolia, zkSync Era Sepolia
+
+    // Проверяем, что адрес контракта не нулевой
+    const isContractDeployed = SHADOW_POOL_ADDRESS !== "0x0000000000000000000000000000000000000000";
+
+    // Автоматическое переключение на Anvil, если подключен к неподдерживаемой сети или контракт не развернут
+    useEffect(() => {
+        if (chainId && (!isSupportedNetwork || !isContractDeployed)) {
+            console.log(`Текущая сеть (${chainId}) не поддерживается или контракт не развернут. Переключаемся на Anvil...`);
+            try {
+                switchChain({ chainId: 31337 });
+            } catch (error) {
+                console.error("Ошибка переключения сети:", error);
+                setLastError("Не удалось переключиться на сеть Anvil. Пожалуйста, сделайте это вручную.");
+            }
+        }
+    }, [chainId, isSupportedNetwork, isContractDeployed, switchChain]);
+
+    // Получение статистики пула (включает комиссии)
+    const { data: poolStats, error: poolStatsError } = useContractRead({
+        address: SHADOW_POOL_ADDRESS as `0x${string}`,
         abi: SHADOW_POOL_ABI,
         functionName: "getPoolStats",
-    });
+        query: {
+            enabled: isSupportedNetwork && isContractDeployed,
+        },
+    }) as { data: PoolStats | undefined; error: Error | null };
 
     // Получение уровня анонимности
-    const { data: anonymityLevel, isLoading: isLoadingAnonymity, error: anonymityError } = useContractRead({
-        address: SHADOW_POOL_ADDRESS,
+    const { data: anonymityLevel, error: anonymityLevelError } = useContractRead({
+        address: SHADOW_POOL_ADDRESS as `0x${string}`,
         abi: SHADOW_POOL_ABI,
         functionName: "getAnonymityLevel",
-    });
+        query: {
+            enabled: isSupportedNetwork && isContractDeployed,
+        },
+    }) as { data: string | undefined; error: Error | null };
 
     // Получение утилизации пула
-    const { data: poolUtilization, isLoading: isLoadingUtilization, error: utilizationError } = useContractRead({
-        address: SHADOW_POOL_ADDRESS,
+    const { data: poolUtilization, error: poolUtilizationError } = useContractRead({
+        address: SHADOW_POOL_ADDRESS as `0x${string}`,
         abi: SHADOW_POOL_ABI,
         functionName: "getPoolUtilization",
-    });
-
-    // Получение комиссий
-    const { data: percentageFee, isLoading: isLoadingPercentageFee, error: percentageFeeError } = useContractRead({
-        address: SHADOW_POOL_ADDRESS,
-        abi: SHADOW_POOL_ABI,
-        functionName: "percentageFee",
-    });
-
-    const { data: fixedFee, isLoading: isLoadingFixedFee, error: fixedFeeError } = useContractRead({
-        address: SHADOW_POOL_ADDRESS,
-        abi: SHADOW_POOL_ABI,
-        functionName: "fixedFee",
-    });
+        query: {
+            enabled: isSupportedNetwork && isContractDeployed,
+        },
+    }) as { data: bigint | undefined; error: Error | null };
 
     // Единый хук для записи контракта
     const { writeContract, isPending: isWriting, data: transactionHash, error: writeError } = useWriteContract();
@@ -174,60 +85,94 @@ export function useShadowPool() {
         hash: transactionHash,
     });
 
-    // Логирование ошибок для диагностики (только при изменении ошибок)
+    // Логирование ошибок для диагностики
     useEffect(() => {
-        if (poolStatsError) console.error("Pool stats error:", poolStatsError);
+        if (poolStatsError) {
+            console.error("Pool stats error:", poolStatsError);
+            setLastError(`Ошибка загрузки статистики пула: ${poolStatsError.message}`);
+        }
     }, [poolStatsError]);
 
     useEffect(() => {
-        if (anonymityError) console.error("Anonymity level error:", anonymityError);
-    }, [anonymityError]);
+        if (anonymityLevelError) {
+            console.error("Anonymity level error:", anonymityLevelError);
+            setLastError(`Ошибка загрузки уровня анонимности: ${anonymityLevelError.message}`);
+        }
+    }, [anonymityLevelError]);
 
     useEffect(() => {
-        if (utilizationError) console.error("Pool utilization error:", utilizationError);
-    }, [utilizationError]);
+        if (poolUtilizationError) {
+            console.error("Pool utilization error:", poolUtilizationError);
+            setLastError(`Ошибка загрузки утилизации пула: ${poolUtilizationError.message}`);
+        }
+    }, [poolUtilizationError]);
 
     useEffect(() => {
-        if (percentageFeeError) console.error("Percentage fee error:", percentageFeeError);
-    }, [percentageFeeError]);
-
-    useEffect(() => {
-        if (fixedFeeError) console.error("Fixed fee error:", fixedFeeError);
-    }, [fixedFeeError]);
-
-    useEffect(() => {
-        if (writeError) console.error("Write contract error:", writeError);
+        if (writeError) {
+            console.error("Write contract error:", writeError);
+            setLastError(`Ошибка записи в контракт: ${writeError.message}`);
+        }
     }, [writeError]);
 
     useEffect(() => {
-        if (transactionError) console.error("Transaction error:", transactionError);
+        if (transactionError) {
+            console.error("Transaction error:", transactionError);
+            setLastError(`Ошибка транзакции: ${transactionError.message}`);
+        }
     }, [transactionError]);
 
-    // Расчёт комиссии для суммы (используя реальные данные из контракта)
+    // Очистка ошибки при успешной транзакции
+    useEffect(() => {
+        if (isTransactionSuccess) {
+            setLastError(null);
+        }
+    }, [isTransactionSuccess]);
+
+    // Расчёт комиссии для суммы (используя данные из getPoolStats)
     const calculateFeeForAmount = (amount: string) => {
         if (!amount || parseFloat(amount) <= 0) return "0";
 
-        const amountWei = parseEther(amount);
+        try {
+            const amountWei = parseEther(amount);
 
-        if (percentageFee && fixedFee) {
-            const percentageFeeAmount = (amountWei * BigInt(percentageFee)) / BigInt(10000); // basis points
-            const fixedFeeWei = typeof fixedFee === 'bigint' ? fixedFee : parseEther(fixedFee as string);
-            const totalFee = percentageFeeAmount + fixedFeeWei;
+            if (poolStats) {
+                const percentageFeeAmount = (amountWei * poolStats.currentPercentageFee) / BigInt(10000); // basis points
+                const totalFee = percentageFeeAmount + poolStats.currentFixedFee;
+                return formatEther(totalFee);
+            }
+
+            // Fallback если данные не загружены
+            const fallbackPercentageFee = (amountWei * BigInt(50)) / BigInt(10000); // 0.5%
+            const fallbackFixedFee = parseEther("0.001"); // 0.001 ETH
+            const totalFee = fallbackPercentageFee + fallbackFixedFee;
+
             return formatEther(totalFee);
+        } catch (error) {
+            console.error("Error calculating fee:", error);
+            return "0";
         }
-
-        // Fallback если данные не загружены
-        const fallbackPercentageFee = (amountWei * BigInt(50)) / BigInt(10000); // 0.5%
-        const fallbackFixedFee = parseEther("0.001"); // 0.001 ETH
-        const totalFee = fallbackPercentageFee + fallbackFixedFee;
-
-        return formatEther(totalFee);
     };
 
     // Функция для выполнения депозита
     const performDeposit = (amount: string, commitment: string) => {
         if (!writeContract || !amount || !commitment) {
-            console.error("Missing required parameters for deposit");
+            const error = "Missing required parameters for deposit";
+            console.error(error);
+            setLastError(error);
+            return;
+        }
+
+        if (!isSupportedNetwork) {
+            const error = "Неподдерживаемая сеть. Пожалуйста, переключитесь на Anvil, Mainnet, Sepolia или zkSync Era Sepolia.";
+            console.error(error);
+            setLastError(error);
+            return;
+        }
+
+        if (!isContractDeployed) {
+            const error = "Контракт не развернут в текущей сети. Пожалуйста, переключитесь на Anvil.";
+            console.error(error);
+            setLastError(error);
             return;
         }
 
@@ -240,8 +185,11 @@ export function useShadowPool() {
                 args: [commitment as `0x${string}`],
                 value: amountWei,
             });
+            setLastError(null);
         } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : "Unknown error";
             console.error("Error performing deposit:", error);
+            setLastError(`Ошибка выполнения депозита: ${errorMessage}`);
         }
     };
 
@@ -253,30 +201,45 @@ export function useShadowPool() {
         amount: string;
     }) => {
         if (!writeContract || !params.proof || !params.publicInputs || !params.token || !params.amount) {
-            console.error("Missing required parameters for deposit");
-            throw new Error("Missing required parameters for deposit");
+            const error = "Missing required parameters for deposit";
+            console.error(error);
+            setLastError(error);
+            throw new Error(error);
+        }
+
+        if (!isSupportedNetwork) {
+            const error = "Неподдерживаемая сеть. Пожалуйста, переключитесь на Anvil, Mainnet, Sepolia или zkSync Era Sepolia.";
+            console.error(error);
+            setLastError(error);
+            throw new Error(error);
+        }
+
+        if (!isContractDeployed) {
+            const error = "Контракт не развернут в текущей сети. Пожалуйста, переключитесь на Anvil.";
+            console.error(error);
+            setLastError(error);
+            throw new Error(error);
         }
 
         try {
             const amountWei = parseEther(params.amount);
-
-            // Для простоты используем первый public input как commitment
-            const commitment = params.publicInputs[0] || "0x0000000000000000000000000000000000000000000000000000000000000000";
-
             writeContract({
                 address: SHADOW_POOL_ADDRESS as `0x${string}`,
                 abi: SHADOW_POOL_ABI,
                 functionName: "deposit",
-                args: [commitment as `0x${string}`],
+                args: [params.proof as `0x${string}`, params.publicInputs as `0x${string}`[]],
                 value: amountWei,
             });
+            setLastError(null);
         } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : "Unknown error";
             console.error("Error performing deposit:", error);
-            throw error;
+            setLastError(`Ошибка выполнения депозита: ${errorMessage}`);
+            throw new Error(`Ошибка выполнения депозита: ${errorMessage}`);
         }
     };
 
-    // Функция для выполнения вывода средств
+    // Функция для выполнения вывода
     const performWithdraw = (
         proof: string,
         root: string,
@@ -285,13 +248,28 @@ export function useShadowPool() {
         amount: string
     ) => {
         if (!writeContract || !proof || !root || !nullifierHashes || !recipient || !amount) {
-            console.error("Missing required parameters for withdraw");
+            const error = "Missing required parameters for withdraw";
+            console.error(error);
+            setLastError(error);
+            return;
+        }
+
+        if (!isSupportedNetwork) {
+            const error = "Неподдерживаемая сеть. Пожалуйста, переключитесь на Anvil, Mainnet, Sepolia или zkSync Era Sepolia.";
+            console.error(error);
+            setLastError(error);
+            return;
+        }
+
+        if (!isContractDeployed) {
+            const error = "Контракт не развернут в текущей сети. Пожалуйста, переключитесь на Anvil.";
+            console.error(error);
+            setLastError(error);
             return;
         }
 
         try {
             const amountWei = parseEther(amount);
-
             writeContract({
                 address: SHADOW_POOL_ADDRESS as `0x${string}`,
                 abi: SHADOW_POOL_ABI,
@@ -301,57 +279,59 @@ export function useShadowPool() {
                     root as `0x${string}`,
                     nullifierHashes,
                     recipient as `0x${string}`,
-                    [], // tokens array (empty for ETH)
-                    [amountWei], // amounts array
+                    amountWei,
                 ],
             });
+            setLastError(null);
         } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : "Unknown error";
             console.error("Error performing withdraw:", error);
+            setLastError(`Ошибка выполнения вывода: ${errorMessage}`);
         }
     };
 
+    // Функция для генерации proof (заглушка)
+    const generateProof = (params: {
+        nullifier: string;
+        secret: string;
+        token: string;
+        amount: string;
+    }) => {
+        console.log("generateProof called with params:", params);
+        // Здесь должна быть логика генерации proof
+        return Promise.resolve({
+            proof: "0x",
+            publicInputs: [],
+        });
+    };
+
+    // Возвращаем данные с дефолтными значениями для неработающих функций
     return {
-        // Данные
-        poolStats: poolStats ? {
-            totalDeposits: typeof poolStats[0] === 'bigint' ? poolStats[0] : BigInt(poolStats[0]),
-            currentRoot: poolStats[1] as `0x${string}`,
-            currentPercentageFee: Number(poolStats[2]),
-            currentFixedFee: formatEther(poolStats[3]),
-        } : null,
-        anonymityLevel: anonymityLevel as string,
-        poolUtilization: poolUtilization ? Number(poolUtilization) / 100 : 0,
-        percentageFee: percentageFee ? Number(percentageFee) : 50, // basis points
-        fixedFee: fixedFee ? (typeof fixedFee === 'bigint' ? formatEther(fixedFee) : fixedFee as string) : "0.001",
+        // Основные данные
+        poolStats,
+        totalDeposits: poolStats?.totalDeposits || BigInt(0),
+        currentRoot: poolStats?.currentRoot || "0x0000000000000000000000000000000000000000000000000000000000000000",
+        currentPercentageFee: poolStats?.currentPercentageFee || BigInt(50), // 0.5%
+        currentFixedFee: poolStats?.currentFixedFee || parseEther("0.001"), // 0.001 ETH
 
-        // Состояния загрузки
-        isLoadingStats,
-        isLoadingAnonymity,
-        isLoadingUtilization,
-        isLoadingPercentageFee,
-        isLoadingFixedFee,
-        isDepositing: isWriting,
-        isWaitingDeposit: isWaitingTransaction,
-        isDepositSuccess: isTransactionSuccess,
-        isWithdrawing: isWriting,
-        isWaitingWithdraw: isWaitingTransaction,
-        isWithdrawSuccess: isTransactionSuccess,
+        // Данные из контракта
+        anonymityLevel: anonymityLevel || "Low anonymity", // Дефолтный уровень анонимности
+        poolUtilization: poolUtilization || BigInt(0), // Дефолтная утилизация 0%
 
-        // Ошибки
-        poolStatsError,
-        anonymityError,
-        utilizationError,
-        percentageFeeError,
-        fixedFeeError,
-        writeError,
-        transactionError,
+        // Состояния
+        isLoading: false,
+        isWriting,
+        isWaitingTransaction,
+        isTransactionSuccess,
+        lastError,
+        isSupportedNetwork,
+        isContractDeployed,
 
         // Функции
         calculateFeeForAmount,
         performDeposit,
-        performWithdraw,
         deposit,
-
-        // Адрес контракта
-        contractAddress: SHADOW_POOL_ADDRESS,
+        performWithdraw,
+        generateProof,
     };
 } 

@@ -154,6 +154,146 @@
   }
 }
 
+
+@keyframes neon-pulse {
+
+  0%,
+  100% {
+    text-shadow: 0 0 5px currentColor, 0 0 10px currentColor, 0 0 15px currentColor;
+  }
+
+  50% {
+    text-shadow: 0 0 10px currentColor, 0 0 20px currentColor, 0 0 30px currentColor;
+  }
+}
+
+@keyframes glitch {
+  0% {
+    transform: translate(0);
+  }
+
+  20% {
+    transform: translate(-2px, 2px);
+  }
+
+  40% {
+    transform: translate(-2px, -2px);
+  }
+
+  60% {
+    transform: translate(2px, 2px);
+  }
+
+  80% {
+    transform: translate(2px, -2px);
+  }
+
+  100% {
+    transform: translate(0);
+  }
+}
+
+@keyframes matrix-rain {
+  0% {
+    transform: translateY(-100vh);
+    opacity: 1;
+  }
+
+  100% {
+    transform: translateY(100vh);
+    opacity: 0;
+  }
+}
+
+@keyframes hologram {
+
+  0%,
+  100% {
+    opacity: 0.8;
+    filter: hue-rotate(0deg);
+  }
+
+  50% {
+    opacity: 1;
+    filter: hue-rotate(180deg);
+  }
+}
+
+@keyframes energy-wave {
+  0% {
+    transform: scaleX(0);
+    opacity: 1;
+  }
+
+  50% {
+    transform: scaleX(1);
+    opacity: 0.5;
+  }
+
+  100% {
+    transform: scaleX(0);
+    opacity: 0;
+  }
+}
+
+@keyframes particle-float {
+
+  0%,
+  100% {
+    transform: translateY(0px) rotate(0deg);
+  }
+
+  25% {
+    transform: translateY(-10px) rotate(90deg);
+  }
+
+  50% {
+    transform: translateY(-20px) rotate(180deg);
+  }
+
+  75% {
+    transform: translateY(-10px) rotate(270deg);
+  }
+}
+
+@keyframes cyber-spin {
+  0% {
+    transform: rotate(0deg) scale(1);
+  }
+
+  50% {
+    transform: rotate(180deg) scale(1.1);
+  }
+
+  100% {
+    transform: rotate(360deg) scale(1);
+  }
+}
+
+@keyframes neon-border {
+
+  0%,
+  100% {
+    border-color: #00ffff;
+    box-shadow: 0 0 10px #00ffff;
+  }
+
+  25% {
+    border-color: #ff00ff;
+    box-shadow: 0 0 10px #ff00ff;
+  }
+
+  50% {
+    border-color: #ffff00;
+    box-shadow: 0 0 10px #ffff00;
+  }
+
+  75% {
+    border-color: #00ff00;
+    box-shadow: 0 0 10px #00ff00;
+  }
+}
+
 /* Применение анимаций */
 .animate-float {
   animation: float 3s ease-in-out infinite;
@@ -185,6 +325,39 @@
   animation: bounce-in 0.6s ease-out;
 }
 
+/* НОВЫЕ БЕЗУМНЫЕ КЛАССЫ */
+.animate-neon-pulse {
+  animation: neon-pulse 2s ease-in-out infinite;
+}
+
+.animate-glitch {
+  animation: glitch 0.3s ease-in-out infinite;
+}
+
+.animate-matrix-rain {
+  animation: matrix-rain 3s linear infinite;
+}
+
+.animate-hologram {
+  animation: hologram 4s ease-in-out infinite;
+}
+
+.animate-energy-wave {
+  animation: energy-wave 2s ease-in-out infinite;
+}
+
+.animate-particle-float {
+  animation: particle-float 4s ease-in-out infinite;
+}
+
+.animate-cyber-spin {
+  animation: cyber-spin 3s ease-in-out infinite;
+}
+
+.animate-neon-border {
+  animation: neon-border 2s ease-in-out infinite;
+}
+
 /* Безумные эффекты */
 .madness-gradient {
   background: linear-gradient(45deg, #6366f1, #8b5cf6, #ec4899, #f59e0b, #10b981, #3b82f6);
@@ -198,57 +371,62 @@
   border: 1px solid rgba(255, 255, 255, 0.2);
 }
 
-.dark .glass-effect {
-  background: rgba(0, 0, 0, 0.3);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-}
-
+/* НОВЫЕ БЕЗУМНЫЕ ЭФФЕКТЫ */
 .neon-border {
   border: 2px solid transparent;
-  background: linear-gradient(45deg, #6366f1, #8b5cf6) border-box;
-  -webkit-mask: linear-gradient(#fff 0 0) padding-box, linear-gradient(#fff 0 0);
-  -webkit-mask-composite: destination-out;
-  mask-composite: exclude;
+  background: linear-gradient(45deg, #00ffff, #ff00ff, #ffff00, #00ffff);
+  background-size: 400% 400%;
+  animation: rotate-gradient 3s linear infinite;
+}
+
+.neon-border::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  background: linear-gradient(45deg, #00ffff, #ff00ff, #ffff00, #00ffff);
+  background-size: 400% 400%;
+  animation: rotate-gradient 3s linear infinite;
+  z-index: -1;
+  border-radius: inherit;
 }
 
 .hover-lift {
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
 }
 
 .hover-lift:hover {
-  transform: translateY(-5px);
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
-}
-
-.dark .hover-lift:hover {
+  transform: translateY(-10px);
   box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
 }
 
-/* Интуитивные формы */
+.dark .hover-lift:hover {
+  box-shadow: 0 20px 40px rgba(255, 255, 255, 0.1);
+}
+
 .form-input {
-  @apply w-full px-4 py-3 rounded-lg border-2 transition-all duration-300;
-  background: rgb(var(--input));
-  border-color: rgb(var(--border));
-  color: rgb(var(--foreground));
+  background: rgba(255, 255, 255, 0.1);
+  border: 2px solid transparent;
+  border-radius: 8px;
+  padding: 12px 16px;
+  transition: all 0.3s ease;
 }
 
 .form-input:focus {
-  @apply outline-none ring-2;
-  border-color: rgb(var(--primary));
-  ring-color: rgb(var(--ring));
+  outline: none;
+  border-color: #6366f1;
+  box-shadow: 0 0 20px rgba(99, 102, 241, 0.3);
   transform: scale(1.02);
 }
 
 .form-input:hover {
-  border-color: rgb(var(--primary));
-  transform: translateY(-2px);
+  border-color: #8b5cf6;
 }
 
-/* Кнопки */
 .btn-primary {
-  @apply px-6 py-3 rounded-lg font-semibold transition-all duration-300;
-  background: linear-gradient(45deg, rgb(var(--primary)), rgb(var(--primary) / 0.8));
-  color: rgb(var(--primary-foreground));
+  background: linear-gradient(45deg, #6366f1, #8b5cf6);
+  background-size: 200% 200%;
+  animation: rotate-gradient 3s ease infinite;
+  transition: all 0.3s ease;
   position: relative;
   overflow: hidden;
 }
@@ -260,7 +438,7 @@
   left: -100%;
   width: 100%;
   height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
   transition: left 0.5s;
 }
 
@@ -270,61 +448,55 @@
 
 .btn-primary:hover {
   transform: translateY(-2px);
-  box-shadow: 0 10px 25px rgba(var(--primary), 0.3);
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.3);
 }
 
-/* Карточки */
 .card {
-  @apply rounded-xl p-6 transition-all duration-300;
-  background: rgb(var(--background));
-  border: 1px solid rgb(var(--border));
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  transition: all 0.3s ease;
 }
 
 .card:hover {
   transform: translateY(-5px) scale(1.02);
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
-}
-
-.dark .card:hover {
   box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
 }
 
-/* Загрузка */
+.dark .card:hover {
+  box-shadow: 0 20px 40px rgba(255, 255, 255, 0.1);
+}
+
 .loading-shimmer {
-  background: linear-gradient(90deg,
-      rgb(var(--muted)) 25%,
-      rgb(var(--muted) / 0.5) 50%,
-      rgb(var(--muted)) 75%);
-  background-size: 200% 100%;
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 200px 100%;
   animation: shimmer 1.5s infinite;
 }
 
-/* Скроллбар */
+/* Безумные скроллбары */
 ::-webkit-scrollbar {
   width: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: rgb(var(--muted));
+  background: rgba(0, 0, 0, 0.1);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgb(var(--primary));
+  background: linear-gradient(45deg, #00ffff, #ff00ff);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgb(var(--primary) / 0.8);
+  background: linear-gradient(45deg, #ff00ff, #00ffff);
 }
 
-/* Основные стили */
 body {
-  color: rgb(var(--foreground));
-  background: rgb(var(--background));
-  transition: all 0.3s ease;
+  background: linear-gradient(135deg, #0f0f23 0%, #1a1a2e 50%, #16213e 100%);
+  color: white;
+  font-family: 'Inter', sans-serif;
 }
 
-/* Безумные частицы */
 .particles {
   position: fixed;
   top: 0;
@@ -332,24 +504,245 @@ body {
   width: 100%;
   height: 100%;
   pointer-events: none;
-  z-index: -1;
+  z-index: 0;
 }
 
 .particle {
   position: absolute;
-  width: 4px;
-  height: 4px;
-  background: rgb(var(--primary));
+  width: 2px;
+  height: 2px;
+  background: #6366f1;
   border-radius: 50%;
-  animation: float 6s ease-in-out infinite;
+  animation: float 3s ease-in-out infinite;
 }
 
 .particle:nth-child(odd) {
-  animation-delay: -3s;
-  animation-duration: 8s;
+  background: #8b5cf6;
+  animation-delay: 1s;
 }
 
 .particle:nth-child(even) {
-  animation-delay: -1s;
-  animation-duration: 10s;
+  background: #ec4899;
+  animation-delay: 2s;
+}
+
+/* НОВЫЕ БЕЗУМНЫЕ СТИЛИ */
+.text-mad {
+  background: linear-gradient(45deg, #00ffff, #ff00ff, #ffff00);
+  background-size: 200% 200%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: rotate-gradient 3s ease infinite;
+}
+
+.text-neon {
+  color: #00ffff;
+  text-shadow: 0 0 10px #00ffff, 0 0 20px #00ffff, 0 0 30px #00ffff;
+  animation: neon-pulse 2s ease-in-out infinite;
+}
+
+.shadow-neon {
+  box-shadow: 0 0 20px rgba(0, 255, 255, 0.5);
+}
+
+.shadow-glow {
+  box-shadow: 0 0 30px rgba(99, 102, 241, 0.6);
+}
+
+.shadow-hologram {
+  box-shadow: 0 0 40px rgba(255, 0, 255, 0.4);
+}
+
+.icon-mad {
+  transition: all 0.3s ease;
+}
+
+.icon-mad:hover {
+  transform: rotate(360deg) scale(1.2);
+  filter: drop-shadow(0 0 10px currentColor);
+}
+
+.input-mad {
+  background: rgba(255, 255, 255, 0.1);
+  border: 2px solid transparent;
+  border-radius: 8px;
+  padding: 12px 16px;
+  transition: all 0.3s ease;
+}
+
+.input-mad:focus {
+  outline: none;
+  border-color: #00ffff;
+  box-shadow: 0 0 20px rgba(0, 255, 255, 0.3);
+  transform: scale(1.02);
+}
+
+.btn-mad {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(45deg, #00ffff, #ff00ff);
+  background-size: 200% 200%;
+  animation: rotate-gradient 3s ease infinite;
+  transition: all 0.3s ease;
+}
+
+.btn-mad::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+  transition: left 0.5s;
+}
+
+.btn-mad:hover::before {
+  left: 100%;
+}
+
+.btn-mad:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.3);
+}
+
+.card-mad {
+  position: relative;
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  transition: all 0.3s ease;
+}
+
+.card-mad::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(45deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.card-mad:hover::before {
+  opacity: 1;
+}
+
+.card-mad:hover {
+  transform: translateY(-5px) scale(1.02);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+}
+
+/* Безумные выделения */
+::selection {
+  background: linear-gradient(45deg, #00ffff, #ff00ff);
+  color: white;
+}
+
+/* Безумные фокусы */
+.focus-mad:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(0, 255, 255, 0.5);
+  transform: scale(1.05);
+}
+
+/* Безумные переходы */
+.transition-mad {
+  transition: all 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+}
+
+.transition-bounce {
+  transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+/* Безумные фильтры */
+.filter-cyber {
+  filter: contrast(1.2) brightness(1.1) saturate(1.3);
+}
+
+.filter-neon {
+  filter: drop-shadow(0 0 10px currentColor);
+}
+
+.filter-hologram {
+  filter: hue-rotate(0deg);
+  animation: hologram 4s ease-in-out infinite;
+}
+
+/* Безумные спиннеры */
+.spinner-mad {
+  width: 40px;
+  height: 40px;
+  border: 4px solid transparent;
+  border-top: 4px solid #00ffff;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+/* Безумные сетки */
+.grid-mad {
+  display: grid;
+  gap: 20px;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+}
+
+.grid-mad>* {
+  animation: fade-in-up 0.6s ease-out forwards;
+  animation-delay: calc(var(--index, 0) * 0.1s);
+}
+
+/* Безумные медиа-запросы */
+@media (max-width: 768px) {
+  .animate-float {
+    animation-duration: 2s;
+  }
+
+  .animate-pulse-glow {
+    animation-duration: 1.5s;
+  }
+
+  .btn-mad:hover {
+    transform: none;
+  }
+
+  .card-mad:hover {
+    transform: none;
+  }
+}
+
+/* Безумные принтеры */
+@media print {
+
+  .animate-float,
+  .animate-pulse-glow,
+  .animate-rotate-gradient,
+  .animate-fade-in-up,
+  .animate-shimmer,
+  .animate-neon-pulse,
+  .animate-glitch,
+  .animate-matrix-rain,
+  .animate-hologram,
+  .animate-energy-wave,
+  .animate-particle-float {
+    animation: none !important;
+  }
+
+  .glass-effect,
+  .neon-border,
+  .shadow-neon,
+  .shadow-glow,
+  .shadow-hologram {
+    background: white !important;
+    border: 1px solid black !important;
+    box-shadow: none !important;
+  }
 }

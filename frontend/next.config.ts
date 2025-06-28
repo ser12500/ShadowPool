@@ -44,6 +44,12 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+
+  // Настройки для исправления ошибок RSC (обновлено для Next.js 15)
+  serverExternalPackages: ['@noir-lang/noir_js', '@aztec/bb.js'],
+
+  // Настройки для кэширования
+  generateEtags: false,
 };
 
 export default nextConfig;

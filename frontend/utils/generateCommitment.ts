@@ -52,7 +52,7 @@ export default async function generateCommitment(token: string, amount: string):
     const amountUint = BigInt(amount);
     const amountFr = Fr.fromString(amountUint.toString());
 
-    const commitment: Fr = await bb.poseidon2Hash([nullifier, secret, tokenFr, amountFr]);
+    const commitment = await bb.poseidon2Hash([nullifier, secret, tokenFr, amountFr]);
 
     // Используем правильный AbiCoder для ethers v6
     const abiCoder = new ethers.AbiCoder();

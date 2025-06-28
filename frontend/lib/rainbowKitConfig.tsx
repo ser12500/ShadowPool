@@ -1,27 +1,48 @@
 "use client"
 
-import { mainnet, sepolia, hardhat, arbitrum, base, optimism, zksyncSepoliaTestnet } from "wagmi/chains"
+import { mainnet, sepolia, arbitrum, base, optimism, zksyncSepoliaTestnet } from "wagmi/chains"
 import { http, createConfig } from "wagmi"
 
-// Создаем собственную конфигурацию с проверенными RPC URL
+// Определяем сеть Anvil прямо здесь
+const anvil = {
+    id: 31337,
+    name: "Anvil",
+    network: "anvil",
+    nativeCurrency: {
+        name: "Ethereum",
+        symbol: "ETH",
+        decimals: 18,
+    },
+    rpcUrls: {
+        default: { http: ["http://127.0.0.1:8545"] },
+        public: { http: ["http://127.0.0.1:8545"] },
+    },
+    blockExplorers: {
+        default: { name: "Etherscan", url: "https://etherscan.io" },
+    },
+    testnet: true,
+} as const
+
+// Создаем собственную конфигурацию с проверенными RPC URL и улучшенной обработкой ошибок
 const config = createConfig({
     chains: [
+        anvil, // Добавляем Anvil первым для удобства локальной разработки
         {
             ...mainnet,
             rpcUrls: {
                 ...mainnet.rpcUrls,
                 default: {
                     http: [
-                        "https://rpc.ankr.com/eth",
                         "https://ethereum.publicnode.com",
-                        "https://cloudflare-eth.com"
+                        "https://cloudflare-eth.com",
+                        "https://rpc.ankr.com/eth"
                     ],
                 },
                 public: {
                     http: [
-                        "https://rpc.ankr.com/eth",
                         "https://ethereum.publicnode.com",
-                        "https://cloudflare-eth.com"
+                        "https://cloudflare-eth.com",
+                        "https://rpc.ankr.com/eth"
                     ],
                 },
             },
@@ -32,35 +53,34 @@ const config = createConfig({
                 ...sepolia.rpcUrls,
                 default: {
                     http: [
+                        "https://ethereum-sepolia.publicnode.com",
                         "https://rpc.sepolia.org",
-                        "https://rpc2.sepolia.org",
-                        "https://ethereum-sepolia.publicnode.com"
+                        "https://rpc2.sepolia.org"
                     ],
                 },
                 public: {
                     http: [
+                        "https://ethereum-sepolia.publicnode.com",
                         "https://rpc.sepolia.org",
-                        "https://rpc2.sepolia.org",
-                        "https://ethereum-sepolia.publicnode.com"
+                        "https://rpc2.sepolia.org"
                     ],
                 },
             },
         },
-        hardhat,
         {
             ...arbitrum,
             rpcUrls: {
                 ...arbitrum.rpcUrls,
                 default: {
                     http: [
-                        "https://arb1.arbitrum.io/rpc",
-                        "https://arbitrum.publicnode.com"
+                        "https://arbitrum.publicnode.com",
+                        "https://arb1.arbitrum.io/rpc"
                     ],
                 },
                 public: {
                     http: [
-                        "https://arb1.arbitrum.io/rpc",
-                        "https://arbitrum.publicnode.com"
+                        "https://arbitrum.publicnode.com",
+                        "https://arb1.arbitrum.io/rpc"
                     ],
                 },
             },
@@ -71,14 +91,14 @@ const config = createConfig({
                 ...base.rpcUrls,
                 default: {
                     http: [
-                        "https://mainnet.base.org",
-                        "https://base.publicnode.com"
+                        "https://base.publicnode.com",
+                        "https://mainnet.base.org"
                     ],
                 },
                 public: {
                     http: [
-                        "https://mainnet.base.org",
-                        "https://base.publicnode.com"
+                        "https://base.publicnode.com",
+                        "https://mainnet.base.org"
                     ],
                 },
             },
@@ -89,14 +109,14 @@ const config = createConfig({
                 ...optimism.rpcUrls,
                 default: {
                     http: [
-                        "https://mainnet.optimism.io",
-                        "https://optimism.publicnode.com"
+                        "https://optimism.publicnode.com",
+                        "https://mainnet.optimism.io"
                     ],
                 },
                 public: {
                     http: [
-                        "https://mainnet.optimism.io",
-                        "https://optimism.publicnode.com"
+                        "https://optimism.publicnode.com",
+                        "https://mainnet.optimism.io"
                     ],
                 },
             },
@@ -121,9 +141,9 @@ const config = createConfig({
         },
     ],
     transports: {
+        [anvil.id]: http(),
         [mainnet.id]: http(),
         [sepolia.id]: http(),
-        [hardhat.id]: http(),
         [arbitrum.id]: http(),
         [base.id]: http(),
         [optimism.id]: http(),
@@ -131,4 +151,4 @@ const config = createConfig({
     },
 })
 
-export default config 
+export default config
