@@ -34,6 +34,8 @@ contract Incremental {
     /// @notice Index of the next leaf to be inserted into the tree
     uint32 public s_nextLeafIndex = 0;
 
+    bytes32[] public s_leaves;
+
     /// @notice Error: left value out of field range
     error IncrementalMerkleTree__LeftValueOutOfRange(bytes32 left);
     /// @notice Error: right value out of field range
@@ -114,6 +116,7 @@ contract Incremental {
             currentHash = hashLeftRight(left, right);
             // Go up a level by halving the index
             currentIndex /= 2;
+            s_leaves.push(_leaf);
         }
 
         // Store the new root in the roots array
@@ -194,5 +197,9 @@ contract Incremental {
         else if (i == 30) return bytes32(0x10ebedce66a910039c8edb2cd832d6a9857648ccff5e99b5d08009b44b088edf);
         else if (i == 31) return bytes32(0x213fb841f9de06958cf4403477bdbff7c59d6249daabfee147f853db7c808082);
         else revert IncrementalMerkleTree__IndexOutOfBounds(i);
+    }
+
+    function getLeaves() external view returns (bytes32[] memory) {
+        return s_leaves;
     }
 }
